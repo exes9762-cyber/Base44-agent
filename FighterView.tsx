@@ -1,185 +1,194 @@
 /**
- * FighterView.tsx — Human-proportioned fighter renderer
- * Inspired by UFC-style 2.5D fighting game aesthetics.
- * Uses React Native SVG-style View composition with Animated for all moves.
+ * FighterView.tsx — Ultra-realistic humanoid fighter
+ * Full articulated body: head/face, neck, torso, biceps, forearms, gloves,
+ * hips, thighs, shins, feet. Every combo has its own unique animation.
+ * Physics: momentum, squash/stretch, weight shift, stumble on whiff.
+ * Common sense: flashy kicks have a wider wind-up so skilled players can read them.
  */
 
 import React, { useEffect, useRef } from "react";
-import { Animated, View } from "react-native";
+import { Animated, View, StyleSheet } from "react-native";
 import type { Fighter } from "@/game/types";
 
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface Props {
   fighter: Fighter;
   screenX: number;
   screenY: number;
   scale?: number;
-  color: string;       // fighter's style color (outfit color)
+  color: string;
   mirrorX?: boolean;
   comboName?: string | null;
 }
 
-// ── Color helpers ─────────────────────────────────────────────────────────────
-function hexToRgb(hex: string): [number, number, number] {
+// ─── Color utils ──────────────────────────────────────────────────────────────
+function hexRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.replace("#", ""), 16);
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
-function lighten(hex: string, amt: number): string {
-  const [r, g, b] = hexToRgb(hex);
-  return `rgb(${Math.min(255, r + amt)},${Math.min(255, g + amt)},${Math.min(255, b + amt)})`;
+function lighten(hex: string, a: number) {
+  const [r, g, b] = hexRgb(hex);
+  return `rgb(${Math.min(255,r+a)},${Math.min(255,g+a)},${Math.min(255,b+a)})`;
 }
-function darken(hex: string, amt: number): string {
-  const [r, g, b] = hexToRgb(hex);
-  return `rgb(${Math.max(0, r - amt)},${Math.max(0, g - amt)},${Math.max(0, b - amt)})`;
+function darken(hex: string, a: number) {
+  const [r, g, b] = hexRgb(hex);
+  return `rgb(${Math.max(0,r-a)},${Math.max(0,g-a)},${Math.max(0,b-a)})`;
 }
-function alpha(hex: string, a: number): string {
-  const [r, g, b] = hexToRgb(hex);
-  return `rgba(${r},${g},${b},${a})`;
+function rgba(hex: string, alpha: number) {
+  const [r, g, b] = hexRgb(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-/** Rounded pill — used for limb segments */
-function Pill({
-  w, h, color, borderColor, style,
-}: {
-  w: number; h: number; color: string; borderColor?: string; style?: object;
-}) {
+// ─── Boxing Glove ─────────────────────────────────────────────────────────────
+function Glove({ s, color, dark }: { s: number; color: string; dark: string }) {
+  const gw = 18 * s, gh = 14 * s;
   return (
-    <View
-      style={[{
-        width: w,
-        height: h,
-        borderRadius: w / 2,
-        backgroundColor: color,
-        borderWidth: borderColor ? 1.5 : 0,
-        borderColor: borderColor ?? "transparent",
-      }, style]}
-    />
-  );
-}
-
-/** Boxing glove shape */
-function Glove({ size, color, style }: { size: number; color: string; style?: object }) {
-  const dark = darken(color, 50);
-  return (
-    <View style={[{ width: size * 1.3, height: size, position: "relative" }, style]}>
-      {/* Main glove body */}
+    <View style={{ width: gw, height: gh, position: "relative" }}>
+      {/* Main body */}
       <View style={{
-        width: size * 1.3, height: size,
-        borderRadius: size * 0.4,
+        width: gw, height: gh,
+        borderRadius: gw * 0.38,
         backgroundColor: color,
-        borderWidth: 1.5, borderColor: dark,
+        borderWidth: 1.5,
+        borderColor: dark,
       }} />
-      {/* Wrist wrap line */}
+      {/* Thumb ridge */}
       <View style={{
-        position: "absolute", bottom: size * 0.22,
+        position: "absolute", top: 2, left: 2,
+        width: gw * 0.35, height: gh * 0.38,
+        borderRadius: gw * 0.18,
+        backgroundColor: lighten(color, 18),
+        opacity: 0.6,
+      }} />
+      {/* Wrist wrap */}
+      <View style={{
+        position: "absolute", bottom: gh * 0.22,
         left: 0, right: 0, height: 2,
-        backgroundColor: alpha(dark, 0.6),
+        backgroundColor: rgba(dark, 0.55),
       }} />
-      {/* Knuckle highlight */}
+      {/* Knuckle shine */}
       <View style={{
-        position: "absolute", top: size * 0.12,
-        left: size * 0.15, right: size * 0.15, height: size * 0.18,
-        borderRadius: size * 0.1,
-        backgroundColor: alpha("#ffffff", 0.18),
+        position: "absolute", top: gh * 0.14,
+        left: gw * 0.18, right: gw * 0.18, height: gh * 0.22,
+        borderRadius: gw * 0.12,
+        backgroundColor: rgba("#ffffff", 0.22),
       }} />
     </View>
   );
 }
 
-/** Human-shaped head with face detail */
-function Head({ size, skinColor, hurtFlash, mirrorX }: {
-  size: number; skinColor: string; hurtFlash: boolean; mirrorX?: boolean;
+// ─── Head with full face ───────────────────────────────────────────────────────
+function FighterHead({
+  s, skin, shadowSkin, hurt, mirrorX,
+}: {
+  s: number; skin: string; shadowSkin: string; hurt: boolean; mirrorX?: boolean;
 }) {
-  const shadow = darken(skinColor, 30);
-  const flip = mirrorX ? -1 : 1;
+  const w = 28 * s, h = 33 * s;
+  const eyeY = h * 0.37;
+  const eyeGap = w * 0.22;
+  const eyeW = w * 0.16, eyeH = h * 0.13;
 
   return (
-    <View style={{ width: size, height: size * 1.15, position: "relative" }}>
+    <View style={{ width: w, height: h, position: "relative" }}>
       {/* Skull */}
       <View style={{
-        width: size, height: size * 1.15,
-        borderRadius: size * 0.55,
-        backgroundColor: hurtFlash ? "#ffe0e0" : skinColor,
-        borderWidth: 2, borderColor: shadow,
+        width: w, height: h,
+        borderRadius: w * 0.52,
+        backgroundColor: hurt ? "#ffe8d6" : skin,
+        borderWidth: 2,
+        borderColor: shadowSkin,
         overflow: "hidden",
       }}>
-        {/* Jaw shadow */}
-        <View style={{
-          position: "absolute", bottom: 0, left: size * 0.1, right: size * 0.1,
-          height: size * 0.28, borderRadius: size * 0.25,
-          backgroundColor: alpha(shadow, 0.2),
-        }} />
         {/* Hair */}
         <View style={{
           position: "absolute", top: 0, left: 0, right: 0,
-          height: size * 0.32, borderRadius: size * 0.5,
-          backgroundColor: "#1a1a1a",
+          height: h * 0.30,
+          borderRadius: w * 0.5,
+          backgroundColor: "#1c1c1c",
         }} />
-        {/* Eyes */}
+        {/* Forehead highlight */}
+        <View style={{
+          position: "absolute", top: h * 0.28, left: w * 0.2, right: w * 0.2,
+          height: h * 0.06,
+          borderRadius: w * 0.2,
+          backgroundColor: rgba("#ffffff", 0.12),
+        }} />
+        {/* Left eye */}
         <View style={{
           position: "absolute",
-          top: size * 0.36, left: size * 0.18,
-          width: size * 0.16, height: size * 0.14,
-          borderRadius: size * 0.07,
-          backgroundColor: hurtFlash ? "#ff4444" : "#2c1a0e",
+          top: eyeY, left: w * 0.5 - eyeGap - eyeW,
+          width: eyeW, height: eyeH,
+          borderRadius: eyeW * 0.5,
+          backgroundColor: hurt ? "#cc3300" : "#2c1a0e",
         }} />
+        {/* Right eye */}
         <View style={{
           position: "absolute",
-          top: size * 0.36, right: size * 0.18,
-          width: size * 0.16, height: size * 0.14,
-          borderRadius: size * 0.07,
-          backgroundColor: hurtFlash ? "#ff4444" : "#2c1a0e",
+          top: eyeY, left: w * 0.5 + eyeGap,
+          width: eyeW, height: eyeH,
+          borderRadius: eyeW * 0.5,
+          backgroundColor: hurt ? "#cc3300" : "#2c1a0e",
         }} />
         {/* Eye whites */}
         <View style={{
           position: "absolute",
-          top: size * 0.37, left: size * 0.20,
-          width: size * 0.06, height: size * 0.06,
-          borderRadius: size * 0.03,
-          backgroundColor: "#ffffff",
+          top: eyeY + eyeH * 0.1,
+          left: w * 0.5 - eyeGap - eyeW + eyeW * 0.55,
+          width: eyeW * 0.35, height: eyeH * 0.5,
+          borderRadius: eyeW * 0.2,
+          backgroundColor: "#fff",
+          opacity: 0.9,
         }} />
         <View style={{
           position: "absolute",
-          top: size * 0.37, right: size * 0.20,
-          width: size * 0.06, height: size * 0.06,
-          borderRadius: size * 0.03,
-          backgroundColor: "#ffffff",
+          top: eyeY + eyeH * 0.1,
+          left: w * 0.5 + eyeGap + eyeW * 0.55,
+          width: eyeW * 0.35, height: eyeH * 0.5,
+          borderRadius: eyeW * 0.2,
+          backgroundColor: "#fff",
+          opacity: 0.9,
         }} />
         {/* Nose */}
         <View style={{
           position: "absolute",
-          top: size * 0.52, left: size * 0.5 - size * 0.05,
-          width: size * 0.10, height: size * 0.12,
-          borderRadius: size * 0.05,
-          backgroundColor: alpha(shadow, 0.4),
+          top: h * 0.52, left: w * 0.5 - w * 0.06,
+          width: w * 0.12, height: h * 0.13,
+          borderRadius: w * 0.06,
+          backgroundColor: rgba(shadowSkin, 0.45),
         }} />
         {/* Mouth — grimace when hurt */}
         <View style={{
           position: "absolute",
-          top: size * 0.68, left: size * 0.27, right: size * 0.27,
-          height: size * 0.06,
-          borderRadius: size * 0.03,
-          backgroundColor: hurtFlash ? alpha("#cc0000", 0.7) : alpha(shadow, 0.5),
+          top: h * 0.70, left: w * 0.25, right: w * 0.25,
+          height: h * 0.06,
+          borderRadius: h * 0.03,
+          backgroundColor: hurt ? rgba("#aa0000", 0.65) : rgba(shadowSkin, 0.4),
         }} />
-        {/* Ear */}
+        {/* Jaw shadow */}
         <View style={{
-          position: "absolute",
-          top: size * 0.45,
-          left: flip > 0 ? -size * 0.04 : undefined,
-          right: flip > 0 ? undefined : -size * 0.04,
-          width: size * 0.14, height: size * 0.2,
-          borderRadius: size * 0.07,
-          backgroundColor: skinColor,
-          borderWidth: 1.5, borderColor: shadow,
+          position: "absolute", bottom: 0, left: w * 0.08, right: w * 0.08,
+          height: h * 0.25,
+          borderRadius: w * 0.3,
+          backgroundColor: rgba(shadowSkin, 0.18),
         }} />
       </View>
+      {/* Ear */}
+      <View style={{
+        position: "absolute",
+        top: h * 0.43,
+        left: mirrorX ? undefined : -w * 0.06,
+        right: mirrorX ? -w * 0.06 : undefined,
+        width: w * 0.14, height: h * 0.2,
+        borderRadius: w * 0.07,
+        backgroundColor: skin,
+        borderWidth: 1.5,
+        borderColor: shadowSkin,
+      }} />
     </View>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
-
+// ─── Main FighterView ─────────────────────────────────────────────────────────
 export function FighterView({
   fighter,
   screenX,
@@ -189,588 +198,720 @@ export function FighterView({
   mirrorX,
   comboName,
 }: Props) {
-  const s = scale * 1.0; // base scale multiplier
+  const s = scale;
 
-  // ── Skin & outfit colors ──────────────────────────────────────────────────
-  const isHurt     = fighter.isHurt;
-  const skinBase   = "#d4956a";          // tan fighter skin
-  const skinColor  = isHurt ? "#ffddcc" : skinBase;
-  const shirtColor = isHurt ? "#ffcccc" : darken(color, 20);
-  const shortsColor = isHurt ? "#cccccc" : "#1a1a2e";
-  const shortsStripe = color;
-  const gloveColor  = isHurt ? "#ffaaaa" : color;
-  const shoeColor   = "#111111";
+  // ── Colors ─────────────────────────────────────────────────────────────────
+  const hurt = fighter.isHurt;
+  const skin       = hurt ? "#ffe0cc" : "#d4956a";
+  const shadowSkin = darken("#d4956a", 35);
+  const outfit     = hurt ? lighten(color, 60) : color;
+  const outfitDark = darken(color, 45);
+  const shortsC    = hurt ? "#555" : "#12122a";
+  const stripeC    = color;
+  const gloveC     = hurt ? "#ff9999" : darken(color, 10);
+  const gloveDark  = darken(color, 55);
+  const shoeC      = "#111";
 
-  // ── Sizing (scale-aware) ───────────────────────────────────────────────────
-  const HEAD_W    = 30 * s;
-  const HEAD_H    = 34 * s;
-  const NECK_W    = 14 * s;
-  const NECK_H    = 10 * s;
-  const TORSO_W   = 46 * s;
-  const TORSO_H   = 52 * s;
-  const SHOULDER_W = 52 * s;
-  const SHOULDER_H = 14 * s;
-  const BICEP_W   = 18 * s;
-  const BICEP_H   = 22 * s;
-  const FORE_W    = 14 * s;
-  const FORE_H    = 20 * s;
-  const GLOVE_S   = 16 * s;
-  const HIP_W     = 40 * s;
-  const HIP_H     = 10 * s;
-  const THIGH_W   = 20 * s;
-  const THIGH_H   = 28 * s;
-  const SHIN_W    = 16 * s;
-  const SHIN_H    = 26 * s;
-  const FOOT_W    = 22 * s;
-  const FOOT_H    = 10 * s;
+  // ── Dimensions ─────────────────────────────────────────────────────────────
+  const HEAD_W  = 28 * s, HEAD_H  = 33 * s;
+  const NECK_W  = 12 * s, NECK_H  = 10 * s;
+  const SH_W    = 50 * s, SH_H    = 13 * s; // shoulder bar
+  const TOR_W   = 42 * s, TOR_H   = 48 * s; // torso
+  const BIC_W   = 16 * s, BIC_H   = 20 * s; // bicep
+  const FOR_W   = 12 * s, FOR_H   = 18 * s; // forearm
+  const HIP_W   = 38 * s, HIP_H   = 11 * s;
+  const THI_W   = 18 * s, THI_H   = 26 * s; // thigh
+  const SHN_W   = 13 * s, SHN_H   = 22 * s; // shin
+  const FOOT_W  = 20 * s, FOOT_H  = 9  * s;
+  const TOTAL_H = HEAD_H + NECK_H + TOR_H + HIP_H + THI_H + SHN_H + FOOT_H + 4 * s;
 
-  // total height for positioning anchor
-  const TOTAL_H = HEAD_H + NECK_H + TORSO_H + HIP_H + THIGH_H + SHIN_H + FOOT_H;
-
-  // ── Animated values ────────────────────────────────────────────────────────
+  // ── Animated values ─────────────────────────────────────────────────────────
   // Root
-  const rootY     = useRef(new Animated.Value(0)).current; // whole body up/down
-  const rootX     = useRef(new Animated.Value(0)).current; // whole body fwd/back
+  const rootX     = useRef(new Animated.Value(0)).current;
+  const rootY     = useRef(new Animated.Value(0)).current;
   const shakeX    = useRef(new Animated.Value(0)).current;
   const shakeY    = useRef(new Animated.Value(0)).current;
-  const fallRot   = useRef(new Animated.Value(0)).current;
   const stumbleX  = useRef(new Animated.Value(0)).current;
-  const bodyScale = useRef(new Animated.Value(1)).current; // impact squash
+  const fallRot   = useRef(new Animated.Value(0)).current;
+  const globalScale = useRef(new Animated.Value(1)).current; // impact squash
 
-  // Body twist
-  const torsoRot  = useRef(new Animated.Value(0)).current; // body rotation
-  const torsoY    = useRef(new Animated.Value(0)).current; // torso bob
+  // Body
+  const torsoRot  = useRef(new Animated.Value(0)).current;
+  const torsoY    = useRef(new Animated.Value(0)).current;
+  const crouchY   = useRef(new Animated.Value(0)).current; // squat
 
   // Head
   const headRot   = useRef(new Animated.Value(0)).current;
   const headY     = useRef(new Animated.Value(0)).current;
 
-  // Right arm (lead arm — jab arm in orthodox)
-  const rBicepRot = useRef(new Animated.Value(-15)).current; // guard position
-  const rForeRot  = useRef(new Animated.Value(10)).current;
+  // Right arm (lead / jab arm in orthodox)
+  const rBicep    = useRef(new Animated.Value(-18)).current; // slightly forward guard
+  const rFore     = useRef(new Animated.Value(12)).current;
   const rArmX     = useRef(new Animated.Value(0)).current;
   const rArmY     = useRef(new Animated.Value(0)).current;
 
-  // Left arm (power hand)
-  const lBicepRot = useRef(new Animated.Value(20)).current;  // guard pulled back
-  const lForeRot  = useRef(new Animated.Value(-15)).current;
+  // Left arm (rear / power hand)
+  const lBicep    = useRef(new Animated.Value(22)).current;  // tucked back guard
+  const lFore     = useRef(new Animated.Value(-18)).current;
   const lArmX     = useRef(new Animated.Value(0)).current;
   const lArmY     = useRef(new Animated.Value(0)).current;
 
   // Legs
-  const lThighRot = useRef(new Animated.Value(-8)).current;  // stance splay
-  const rThighRot = useRef(new Animated.Value(8)).current;
-  const lShinRot  = useRef(new Animated.Value(5)).current;
-  const rShinRot  = useRef(new Animated.Value(-5)).current;
+  const lThigh    = useRef(new Animated.Value(-10)).current; // stance splay
+  const rThigh    = useRef(new Animated.Value(10)).current;
+  const lShin     = useRef(new Animated.Value(6)).current;
+  const rShin     = useRef(new Animated.Value(-6)).current;
   const lLegY     = useRef(new Animated.Value(0)).current;
   const rLegY     = useRef(new Animated.Value(0)).current;
 
-  // ── Idle breath ────────────────────────────────────────────────────────────
-  const breathAnim = useRef(new Animated.Value(0)).current;
+  // ── Idle breath ─────────────────────────────────────────────────────────────
+  const breath = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    const b = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathAnim, { toValue: -3, duration: 800, useNativeDriver: true }),
-        Animated.timing(breathAnim, { toValue: 0,  duration: 800, useNativeDriver: true }),
-      ])
-    );
-    b.start();
-    return () => b.stop();
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(breath, { toValue: -2.5, duration: 850, useNativeDriver: true }),
+      Animated.timing(breath, { toValue: 0,    duration: 850, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
   }, []);
 
-  // ── Walk bob ────────────────────────────────────────────────────────────────
+  // ── Walk bob ─────────────────────────────────────────────────────────────────
   const walkBob = useRef(new Animated.Value(0)).current;
-  const walkRef = useRef<Animated.CompositeAnimation | null>(null);
+  const walkAnim = useRef<Animated.CompositeAnimation | null>(null);
   useEffect(() => {
     if (fighter.animState === "walk") {
-      const wa = Animated.loop(
-        Animated.sequence([
-          Animated.timing(walkBob, { toValue: -4, duration: 160, useNativeDriver: true }),
-          Animated.timing(walkBob, { toValue: 0,  duration: 160, useNativeDriver: true }),
-        ])
-      );
-      walkRef.current = wa;
-      wa.start();
+      walkAnim.current = Animated.loop(Animated.sequence([
+        Animated.timing(walkBob, { toValue: -4, duration: 170, useNativeDriver: true }),
+        Animated.timing(walkBob, { toValue: 0,  duration: 170, useNativeDriver: true }),
+      ]));
+      walkAnim.current.start();
     } else {
-      walkRef.current?.stop();
+      walkAnim.current?.stop();
       walkBob.setValue(0);
     }
   }, [fighter.animState]);
 
-  // ── Reset to orthodox guard stance ─────────────────────────────────────────
-  function resetGuard() {
-    Animated.parallel([
-      Animated.spring(torsoRot,  { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(torsoY,    { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(headRot,   { toValue: 0,   tension: 140, friction: 9, useNativeDriver: true }),
-      Animated.spring(headY,     { toValue: 0,   tension: 140, friction: 9, useNativeDriver: true }),
-      Animated.spring(rBicepRot, { toValue: -15, tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rForeRot,  { toValue: 10,  tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rArmX,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rArmY,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lBicepRot, { toValue: 20,  tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lForeRot,  { toValue: -15, tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lArmX,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lArmY,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lThighRot, { toValue: -8,  tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rThighRot, { toValue: 8,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lShinRot,  { toValue: 5,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rShinRot,  { toValue: -5,  tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(lLegY,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rLegY,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rootY,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
-      Animated.spring(rootX,     { toValue: 0,   tension: 120, friction: 9, useNativeDriver: true }),
+  // ── Guard reset ──────────────────────────────────────────────────────────────
+  function resetGuard(delay = 0) {
+    const cfg = { tension: 130, friction: 10, useNativeDriver: true };
+    const run = () => Animated.parallel([
+      Animated.spring(torsoRot, { toValue: 0,   ...cfg }),
+      Animated.spring(torsoY,   { toValue: 0,   ...cfg }),
+      Animated.spring(crouchY,  { toValue: 0,   ...cfg }),
+      Animated.spring(headRot,  { toValue: 0,   ...cfg }),
+      Animated.spring(headY,    { toValue: 0,   ...cfg }),
+      Animated.spring(rBicep,   { toValue: -18, ...cfg }),
+      Animated.spring(rFore,    { toValue: 12,  ...cfg }),
+      Animated.spring(rArmX,    { toValue: 0,   ...cfg }),
+      Animated.spring(rArmY,    { toValue: 0,   ...cfg }),
+      Animated.spring(lBicep,   { toValue: 22,  ...cfg }),
+      Animated.spring(lFore,    { toValue: -18, ...cfg }),
+      Animated.spring(lArmX,    { toValue: 0,   ...cfg }),
+      Animated.spring(lArmY,    { toValue: 0,   ...cfg }),
+      Animated.spring(lThigh,   { toValue: -10, ...cfg }),
+      Animated.spring(rThigh,   { toValue: 10,  ...cfg }),
+      Animated.spring(lShin,    { toValue: 6,   ...cfg }),
+      Animated.spring(rShin,    { toValue: -6,  ...cfg }),
+      Animated.spring(lLegY,    { toValue: 0,   ...cfg }),
+      Animated.spring(rLegY,    { toValue: 0,   ...cfg }),
+      Animated.spring(rootX,    { toValue: 0,   ...cfg }),
+      Animated.spring(rootY,    { toValue: 0,   ...cfg }),
     ]).start();
+    if (delay > 0) setTimeout(run, delay); else run();
   }
 
-  // ── ATTACK animations ──────────────────────────────────────────────────────
+  // Helper: spring to value
+  function sp(val: Animated.Value, toValue: number, tension = 400, friction = 8) {
+    return Animated.spring(val, { toValue, tension, friction, useNativeDriver: true });
+  }
+  function tm(val: Animated.Value, toValue: number, duration: number) {
+    return Animated.timing(val, { toValue, duration, useNativeDriver: true });
+  }
+
+  // ── ATTACK ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!fighter.isAttacking) return;
-    const dir = mirrorX ? 1 : -1;
-    const fwd = mirrorX ? -1 : 1;
-    const cn = comboName ?? "";
+    const dir = mirrorX ? 1 : -1; // rotational direction (facing left = negative angles fwd)
+    const fwd = mirrorX ? -1 : 1; // linear forward direction on screen
+    const cn = (comboName ?? "").toLowerCase();
 
+    // ══ KICKS ══════════════════════════════════════════════════════════════════
     if (fighter.isKicking) {
-      // ─ FLYING / JUMP KICK ─────────────────────────────────────────────────
-      if (cn.match(/jump|flying/i)) {
-        Animated.sequence([
-          // Crouch
-          Animated.parallel([
-            Animated.timing(rootY,     { toValue: 8,   duration: 80, useNativeDriver: true }),
-            Animated.timing(lThighRot, { toValue: -25, duration: 80, useNativeDriver: true }),
-            Animated.timing(rThighRot, { toValue: 25,  duration: 80, useNativeDriver: true }),
-          ]),
-          // Launch
-          Animated.parallel([
-            Animated.timing(rootY,     { toValue: -36, duration: 160, useNativeDriver: true }),
-            Animated.timing(rThighRot, { toValue: dir * -100, duration: 150, useNativeDriver: true }),
-            Animated.timing(rShinRot,  { toValue: dir * 30,   duration: 150, useNativeDriver: true }),
-            Animated.timing(lThighRot, { toValue: dir * 35,   duration: 150, useNativeDriver: true }),
-            Animated.timing(rBicepRot, { toValue: dir * 55,   duration: 140, useNativeDriver: true }),
-            Animated.timing(lBicepRot, { toValue: dir * -55,  duration: 140, useNativeDriver: true }),
-          ]),
-          // Land squash
-          Animated.parallel([
-            Animated.spring(rootY, { toValue: 0, tension: 90, friction: 5, useNativeDriver: true }),
-            Animated.spring(bodyScale, { toValue: 0.72, tension: 500, friction: 6, useNativeDriver: true }),
-          ]),
-          Animated.spring(bodyScale, { toValue: 1, tension: 200, friction: 7, useNativeDriver: true }),
-        ]).start(() => resetGuard());
-      }
 
-      // ─ SPINNING HEEL ──────────────────────────────────────────────────────
-      else if (cn.match(/spinning/i)) {
+      // ── FLYING / JUMP KICK (High-risk: visible wind-up, big payoff) ─────────
+      if (cn.includes("jump") || cn.includes("flying")) {
         Animated.sequence([
+          // Wind-up crouch — TELEGRAPHS the move (common sense: flashy = readable)
           Animated.parallel([
-            Animated.timing(torsoRot, { toValue: dir * -50, duration: 120, useNativeDriver: true }),
-            Animated.timing(rootY,    { toValue: -6,        duration: 120, useNativeDriver: true }),
+            tm(crouchY, 14, 110),
+            tm(lThigh,  -28, 110),
+            tm(rThigh,   28, 110),
+            tm(rBicep, dir * 38, 110),
+            tm(lBicep, dir * -38, 110),
           ]),
+          // Launch — full body extension
           Animated.parallel([
-            Animated.timing(torsoRot,  { toValue: dir * 35,  duration: 180, useNativeDriver: true }),
-            Animated.timing(rThighRot, { toValue: dir * -105, duration: 170, useNativeDriver: true }),
-            Animated.timing(rShinRot,  { toValue: dir * 20,  duration: 170, useNativeDriver: true }),
-            Animated.timing(lBicepRot, { toValue: dir * -60, duration: 160, useNativeDriver: true }),
+            tm(rootY,  -42, 180),
+            tm(crouchY, 0,  180),
+            tm(rThigh, dir * -108, 160),
+            tm(rShin,  dir *  32,  160),
+            tm(lThigh, dir *  40,  160),
+            tm(rBicep, dir *  60,  155),
+            tm(lBicep, dir * -60,  155),
+            tm(torsoRot, dir * -15, 160),
           ]),
+          // Hold airborne pose briefly
+          tm(rootY, -38, 80),
+          // Land + squash (physics: impact absorption)
           Animated.parallel([
-            Animated.spring(torsoRot,  { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
-            Animated.spring(rThighRot, { toValue: 8, tension: 80, friction: 8, useNativeDriver: true }),
-            Animated.spring(rShinRot,  { toValue: -5, tension: 80, friction: 8, useNativeDriver: true }),
+            sp(rootY, 0, 75, 5),
+            Animated.sequence([
+              tm(globalScale, 0.68, 65),
+              sp(globalScale, 1, 280, 8),
+            ]),
+            sp(rThigh, 10, 100, 8),
+            sp(rShin, -6, 100, 8),
+            sp(lThigh, -10, 100, 8),
           ]),
         ]).start(() => resetGuard());
       }
 
-      // ─ TRIPLE KICK ────────────────────────────────────────────────────────
-      else if (cn.match(/triple/i)) {
+      // ── SPINNING HEEL KICK (High-risk: long wind-up, body rotates 180°) ─────
+      else if (cn.includes("spinning")) {
         Animated.sequence([
-          // Kick 1
-          Animated.timing(rThighRot, { toValue: dir * -80, duration: 85, useNativeDriver: true }),
-          Animated.timing(rThighRot, { toValue: 5,         duration: 65, useNativeDriver: true }),
-          // Kick 2
-          Animated.timing(lThighRot, { toValue: dir * 80,  duration: 85, useNativeDriver: true }),
-          Animated.timing(lThighRot, { toValue: -5,        duration: 65, useNativeDriver: true }),
-          // Kick 3 — spinning back
+          // Pivot prep — compress sideways (telegraphed!)
           Animated.parallel([
-            Animated.timing(rThighRot, { toValue: dir * -95, duration: 100, useNativeDriver: true }),
-            Animated.timing(torsoRot,  { toValue: dir * -25, duration: 100, useNativeDriver: true }),
+            tm(torsoRot, dir * -55, 130),
+            tm(rootY,    -8,        130),
+            tm(lBicep,   dir * -65, 120),
+            tm(rBicep,   dir *  50, 120),
+          ]),
+          // Spin + heel drives through
+          Animated.parallel([
+            tm(torsoRot, dir * 40,   190),
+            tm(rThigh,   dir * -112, 175),
+            tm(rShin,    dir *  28,  175),
+            tm(lBicep,   dir * -75,  170),
+            tm(rBicep,   dir *  45,  170),
+          ]),
+          // Recover — momentum carries through
+          Animated.parallel([
+            sp(torsoRot, 0,  80, 8),
+            sp(rThigh,  10,  90, 8),
+            sp(rShin,   -6,  90, 8),
           ]),
         ]).start(() => resetGuard());
       }
 
-      // ─ DOUBLE KICK / DOUBLE KNEE ──────────────────────────────────────────
-      else if (cn.match(/double/i)) {
+      // ── TRIPLE KICK (Rapid alternating, each with micro wind-up) ────────────
+      else if (cn.includes("triple")) {
         Animated.sequence([
+          // Kick 1 — right leg snap
           Animated.parallel([
-            Animated.timing(rThighRot, { toValue: dir * -80, duration: 90, useNativeDriver: true }),
-            Animated.timing(rShinRot,  { toValue: dir * 20,  duration: 90, useNativeDriver: true }),
-            Animated.timing(torsoRot,  { toValue: dir * -12, duration: 90, useNativeDriver: true }),
+            tm(rThigh, dir * -82, 90),
+            tm(rShin,  dir *  22, 90),
+            tm(torsoRot, dir * -14, 80),
           ]),
           Animated.parallel([
-            Animated.spring(rThighRot, { toValue: 8, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(rShinRot,  { toValue: -5, tension: 120, friction: 8, useNativeDriver: true }),
+            sp(rThigh, 10, 180, 9),
+            sp(rShin, -6, 180, 9),
+          ]),
+          // Kick 2 — left leg roundhouse
+          Animated.parallel([
+            tm(lThigh, dir * 82,  90),
+            tm(lShin,  dir * -22, 90),
+            tm(torsoRot, dir * 14, 80),
           ]),
           Animated.parallel([
-            Animated.timing(lThighRot, { toValue: dir * 80,  duration: 90, useNativeDriver: true }),
-            Animated.timing(lShinRot,  { toValue: dir * -20, duration: 90, useNativeDriver: true }),
-            Animated.timing(torsoRot,  { toValue: dir * 12,  duration: 90, useNativeDriver: true }),
+            sp(lThigh, -10, 180, 9),
+            sp(lShin,    6, 180, 9),
+          ]),
+          // Kick 3 — spinning back kick finish (slower = feels heavier)
+          Animated.parallel([
+            tm(rThigh,   dir * -100, 105),
+            tm(torsoRot, dir *  -28, 105),
+            tm(rShin,    dir *   26, 105),
           ]),
         ]).start(() => resetGuard());
       }
 
-      // ─ ROUNDHOUSE ─────────────────────────────────────────────────────────
-      else if (cn.match(/roundhouse/i)) {
+      // ── DOUBLE KICK / DOUBLE KNEE ─────────────────────────────────────────────
+      else if (cn.includes("double")) {
+        Animated.sequence([
+          Animated.parallel([
+            tm(rThigh, dir * -82, 95),
+            tm(rShin,  dir *  20, 95),
+            tm(torsoRot, dir * -12, 85),
+          ]),
+          Animated.parallel([
+            sp(rThigh, 10, 180, 9),
+            sp(rShin,  -6, 180, 9),
+            sp(torsoRot, 0, 120, 9),
+          ]),
+          Animated.parallel([
+            tm(lThigh, dir * 82,  95),
+            tm(lShin,  dir * -20, 95),
+            tm(torsoRot, dir * 12, 85),
+          ]),
+        ]).start(() => resetGuard());
+      }
+
+      // ── ROUNDHOUSE ────────────────────────────────────────────────────────────
+      else if (cn.includes("roundhouse")) {
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(torsoRot,  { toValue: dir * -20, duration: 80,  useNativeDriver: true }),
-            Animated.timing(lThighRot, { toValue: dir * 90,  duration: 140, useNativeDriver: true }),
-            Animated.spring(torsoRot,  { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
-            Animated.spring(lThighRot, { toValue: -8, tension: 80, friction: 8, useNativeDriver: true }),
+            tm(torsoRot, dir * -22, 85),
+            tm(lThigh,   dir *  95, 150),
+            tm(lShin,    dir * -28, 150),
+            sp(torsoRot, 0, 90, 8),
+            sp(lThigh,  -10, 90, 8),
+            sp(lShin,     6, 90, 8),
           ]),
           Animated.sequence([
-            Animated.timing(rBicepRot, { toValue: dir * 45, duration: 80, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(rBicep, dir * 48, 85),
+            sp(rBicep, -18, 110, 9),
           ]),
         ]).start();
       }
 
-      // ─ KNEE STRIKE ────────────────────────────────────────────────────────
-      else if (cn.match(/knee/i)) {
+      // ── KNEE STRIKE ───────────────────────────────────────────────────────────
+      else if (cn.includes("knee")) {
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(rootY,    { toValue: -10, duration: 80, useNativeDriver: true }),
-            Animated.spring(rootY,    { toValue: 0, tension: 100, friction: 7, useNativeDriver: true }),
+            tm(rootY,  -12, 85),
+            sp(rootY,    0, 100, 7),
           ]),
           Animated.sequence([
-            Animated.timing(rThighRot, { toValue: dir * -85, duration: 95, useNativeDriver: true }),
-            Animated.timing(rShinRot,  { toValue: dir * 15,  duration: 95, useNativeDriver: true }),
-            Animated.spring(rThighRot, { toValue: 8, tension: 100, friction: 7, useNativeDriver: true }),
-            Animated.spring(rShinRot,  { toValue: -5, tension: 100, friction: 7, useNativeDriver: true }),
+            tm(rThigh, dir * -90, 100),
+            tm(rShin,  dir *  18, 100),
+            sp(rThigh, 10, 110, 8),
+            sp(rShin,  -6, 110, 8),
           ]),
           Animated.sequence([
-            Animated.timing(lBicepRot, { toValue: dir * -50, duration: 90, useNativeDriver: true }),
-            Animated.timing(rBicepRot, { toValue: dir * 50,  duration: 90, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: 20, tension: 100, friction: 8, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(lBicep, dir * -55, 95),
+            tm(rBicep, dir *  55, 95),
+            sp(lBicep, 22, 110, 9),
+            sp(rBicep,-18, 110, 9),
           ]),
         ]).start();
       }
 
-      // ─ LOW KICK / SWEEP ───────────────────────────────────────────────────
-      else if (cn.match(/low kick|sweep|foot|leg trip/i)) {
+      // ── LOW KICK / FOOT SWEEP / LEG TRIP / DRAGON SWEEP ─────────────────────
+      else if (
+        cn.includes("low kick") || cn.includes("sweep") ||
+        cn.includes("foot") || cn.includes("leg trip") || cn.includes("dragon")
+      ) {
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(lThighRot, { toValue: dir * 50, duration: 95, useNativeDriver: true }),
-            Animated.spring(lThighRot, { toValue: -8, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(lThigh, dir * 52, 100),
+            tm(lShin,  dir * -14, 100),
+            sp(lThigh, -10, 120, 9),
+            sp(lShin,    6, 120, 9),
           ]),
           Animated.sequence([
-            Animated.timing(torsoRot, { toValue: dir * -10, duration: 95, useNativeDriver: true }),
-            Animated.spring(torsoRot, { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+            tm(torsoRot, dir * -12, 95),
+            sp(torsoRot, 0, 110, 9),
+          ]),
+          Animated.sequence([
+            tm(crouchY, 8, 80),
+            sp(crouchY, 0, 110, 8),
           ]),
         ]).start();
       }
 
-      // ─ DEFAULT FRONT KICK / TEEP ──────────────────────────────────────────
+      // ── DEFAULT FRONT KICK / TEEP / REDIRECT KICK ────────────────────────────
       else {
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(rThighRot, { toValue: dir * -75, duration: 90, useNativeDriver: true }),
-            Animated.timing(rShinRot,  { toValue: dir * 25,  duration: 90, useNativeDriver: true }),
-            Animated.spring(rThighRot, { toValue: 8,  tension: 100, friction: 8, useNativeDriver: true }),
-            Animated.spring(rShinRot,  { toValue: -5, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(rThigh, dir * -80, 95),
+            tm(rShin,  dir *  24, 95),
+            sp(rThigh, 10, 110, 8),
+            sp(rShin,  -6, 110, 8),
           ]),
           Animated.sequence([
-            Animated.timing(torsoRot, { toValue: dir * -14, duration: 100, useNativeDriver: true }),
-            Animated.spring(torsoRot, { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+            tm(torsoRot, dir * -15, 100),
+            sp(torsoRot, 0, 110, 9),
           ]),
           Animated.sequence([
-            Animated.timing(rBicepRot, { toValue: dir * 40, duration: 90, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(rBicep, dir * 44, 90),
+            sp(rBicep, -18, 110, 9),
           ]),
         ]).start();
       }
 
+    // ══ HOOK ════════════════════════════════════════════════════════════════════
     } else if (fighter.attackType === "hook") {
-      // ─ LEFT HOOK — powerful hip rotation, arm arcs laterally ─────────────
+      // Left hook — hip drives first (common sense: power from rotation, not arm)
       Animated.parallel([
         Animated.sequence([
-          Animated.timing(torsoRot,  { toValue: dir * -22, duration: 75, useNativeDriver: true }),
-          Animated.timing(torsoRot,  { toValue: dir * 18,  duration: 100, useNativeDriver: true }),
-          Animated.spring(torsoRot,  { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+          tm(torsoRot, dir * -24, 78),  // hip load
+          tm(torsoRot, dir *  20, 105), // hip explosion
+          sp(torsoRot, 0, 90, 8),
         ]),
         Animated.sequence([
-          Animated.timing(lBicepRot, { toValue: dir * -70, duration: 80, useNativeDriver: true }),
-          Animated.timing(lForeRot,  { toValue: dir * 20,  duration: 80, useNativeDriver: true }),
-          Animated.spring(lBicepRot, { toValue: 20, tension: 100, friction: 8, useNativeDriver: true }),
-          Animated.spring(lForeRot,  { toValue: -15, tension: 100, friction: 8, useNativeDriver: true }),
+          tm(lBicep, dir * -75, 85),
+          tm(lFore,  dir *  22, 85),
+          sp(lBicep, 22, 110, 9),
+          sp(lFore, -18, 110, 9),
         ]),
         Animated.sequence([
-          Animated.timing(lArmX,    { toValue: dir * -20, duration: 75, useNativeDriver: true }),
-          Animated.timing(lArmX,    { toValue: dir * 15,  duration: 95, useNativeDriver: true }),
-          Animated.spring(lArmX,    { toValue: 0, tension: 120, friction: 8, useNativeDriver: true }),
+          tm(lArmX, dir * -22, 78),
+          tm(lArmX, dir *  16, 100),
+          sp(lArmX, 0, 120, 9),
         ]),
         Animated.sequence([
-          Animated.timing(lArmY,    { toValue: -12, duration: 75, useNativeDriver: true }),
-          Animated.spring(lArmY,    { toValue: 0, tension: 100, friction: 8, useNativeDriver: true }),
+          tm(lArmY, -14, 80),
+          sp(lArmY, 0, 110, 9),
         ]),
         Animated.sequence([
-          Animated.timing(torsoY,   { toValue: -5, duration: 80, useNativeDriver: true }),
-          Animated.spring(torsoY,   { toValue: 0, tension: 100, friction: 8, useNativeDriver: true }),
+          tm(torsoY, -6, 80),
+          sp(torsoY, 0, 100, 9),
+        ]),
+        Animated.sequence([
+          tm(headRot, dir * -10, 78),
+          sp(headRot, 0, 100, 9),
         ]),
       ]).start();
 
+    // ══ PUNCHES ════════════════════════════════════════════════════════════════
     } else {
-      // ─ PUNCH variants by combo name ────────────────────────────────────────
 
-      if (cn.match(/uppercut/i)) {
-        // UPPERCUT — dip then drive upward
+      // ── UPPERCUT ──────────────────────────────────────────────────────────────
+      if (cn.includes("uppercut") || cn.includes("cross-uppercut")) {
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(rootY,    { toValue: 8,  duration: 60, useNativeDriver: true }),
-            Animated.timing(rootY,    { toValue: -12, duration: 90, useNativeDriver: true }),
-            Animated.spring(rootY,    { toValue: 0, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(crouchY, 10, 65),  // dip
+            tm(crouchY, -14, 95), // drive up
+            sp(crouchY, 0, 110, 8),
           ]),
           Animated.sequence([
-            Animated.timing(rArmY,    { toValue: 8,  duration: 60, useNativeDriver: true }),
-            Animated.timing(rArmY,    { toValue: -25, duration: 90, useNativeDriver: true }),
-            Animated.spring(rArmY,    { toValue: 0, tension: 150, friction: 7, useNativeDriver: true }),
+            tm(rArmY, 10, 65),
+            tm(rArmY, -28, 95),
+            sp(rArmY, 0, 150, 8),
           ]),
           Animated.sequence([
-            Animated.spring(rBicepRot, { toValue: dir * -60, tension: 600, friction: 6, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: dir * -30, tension: 500, friction: 6, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: 10,  tension: 120, friction: 8, useNativeDriver: true }),
+            sp(rBicep, dir * -65, 650, 7),
+            sp(rFore,  dir * -35, 550, 7),
+            sp(rBicep, -18, 130, 9),
+            sp(rFore,   12, 130, 9),
           ]),
           Animated.sequence([
-            Animated.timing(torsoRot, { toValue: dir * -12, duration: 80, useNativeDriver: true }),
-            Animated.spring(torsoRot, { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+            tm(torsoRot, dir * -14, 80),
+            sp(torsoRot, 0, 100, 8),
+          ]),
+          Animated.sequence([
+            tm(headRot, dir * -8, 70),
+            sp(headRot, 0, 90, 9),
           ]),
         ]).start();
+      }
 
-      } else if (cn.match(/elbow/i)) {
-        // ELBOW — tight horizontal arc
+      // ── ELBOW / SPINNING ELBOW ────────────────────────────────────────────────
+      else if (cn.includes("elbow")) {
+        const isSpin = cn.includes("spinning");
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(lBicepRot, { toValue: dir * -95, duration: 65, useNativeDriver: true }),
-            Animated.timing(lArmX,     { toValue: dir * -18, duration: 65, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: 20, tension: 100, friction: 8, useNativeDriver: true }),
-            Animated.spring(lArmX,     { toValue: 0, tension: 120, friction: 8, useNativeDriver: true }),
+            isSpin ? tm(torsoRot, dir * -50, 125) : tm(torsoRot, dir * -28, 72),
+            tm(torsoRot, dir * 22, isSpin ? 190 : 90),
+            sp(torsoRot, 0, 85, 8),
           ]),
           Animated.sequence([
-            Animated.timing(torsoRot,  { toValue: dir * -28, duration: 70, useNativeDriver: true }),
-            Animated.timing(torsoRot,  { toValue: dir * 18,  duration: 80, useNativeDriver: true }),
-            Animated.spring(torsoRot,  { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+            sp(lBicep, dir * -100, isSpin ? 500 : 600, 7),
+            tm(lArmX, dir * -20, isSpin ? 130 : 68),
+            sp(lBicep, 22, 120, 9),
+            sp(lArmX, 0, 130, 9),
           ]),
           Animated.sequence([
-            Animated.timing(torsoY,    { toValue: -6, duration: 80, useNativeDriver: true }),
-            Animated.spring(torsoY,    { toValue: 0, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(torsoY, -8, 80),
+            sp(torsoY, 0, 100, 8),
+          ]),
+          Animated.sequence([
+            tm(headRot, dir * -12, 80),
+            sp(headRot, 0, 90, 9),
           ]),
         ]).start();
+      }
 
-      } else if (cn.match(/grab|takedown|throw|hold|submission|nage|kote|ippon|hip|shoulder|grip|harmony|energy|collar/i)) {
-        // GRAPPLING — lunge forward, body twist, throw
-        Animated.parallel([
-          Animated.sequence([
-            Animated.timing(rootX,    { toValue: fwd * 22, duration: 110, useNativeDriver: true }),
-            Animated.spring(rootX,    { toValue: 0, tension: 60, friction: 6, useNativeDriver: true }),
-          ]),
-          Animated.sequence([
-            Animated.timing(torsoRot, { toValue: dir * -22, duration: 90, useNativeDriver: true }),
-            Animated.timing(torsoRot, { toValue: dir * 32,  duration: 130, useNativeDriver: true }),
-            Animated.spring(torsoRot, { toValue: 0, tension: 60, friction: 6, useNativeDriver: true }),
-          ]),
-          Animated.sequence([
-            Animated.timing(rBicepRot, { toValue: dir * -40, duration: 80, useNativeDriver: true }),
-            Animated.timing(lBicepRot, { toValue: dir * -40, duration: 80, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 80, friction: 6, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: 20, tension: 80, friction: 6, useNativeDriver: true }),
-          ]),
-          Animated.sequence([
-            Animated.timing(rootY,    { toValue: -8, duration: 90, useNativeDriver: true }),
-            Animated.spring(rootY,    { toValue: 0, tension: 80, friction: 6, useNativeDriver: true }),
-          ]),
-          Animated.sequence([
-            Animated.timing(bodyScale, { toValue: 0.8, duration: 100, useNativeDriver: true }),
-            Animated.spring(bodyScale, { toValue: 1, tension: 200, friction: 7, useNativeDriver: true }),
-          ]),
-        ]).start();
-
-      } else if (cn.match(/triple jab|jab.cross|five animal|ground|mantis|1-2|double.*palm|double jab|double grip/i)) {
-        // 3-HIT MEGA COMBO — jab, cross, power hook
+      // ── GRAPPLING (Grab, Takedown, Throw, Submission, Sweep, Ippon, Hip/Shoulder Throw) ──
+      else if (
+        cn.includes("grab") || cn.includes("takedown") || cn.includes("throw") ||
+        cn.includes("hold") || cn.includes("submission") || cn.includes("ippon") ||
+        cn.includes("nage") || cn.includes("hip") || cn.includes("shoulder") ||
+        cn.includes("kote") || cn.includes("collar") || cn.includes("grip") ||
+        cn.includes("harmony") || cn.includes("energy") || cn.includes("redirect") ||
+        cn.includes("sweep")
+      ) {
         Animated.sequence([
-          // Jab
+          // Step in (weight shift forward)
           Animated.parallel([
-            Animated.timing(rArmX,     { toValue: dir * -28, duration: 60, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: dir * -35, tension: 600, friction: 7, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: dir * 15,  tension: 500, friction: 7, useNativeDriver: true }),
+            tm(rootX,    fwd * 24,  110),
+            tm(crouchY,  10,        90),
+            tm(torsoRot, dir * -18, 90),
+            tm(rBicep,   dir * -42, 85),
+            tm(lBicep,   dir * -42, 85),
+          ]),
+          // Execute throw — body rotates, opponent goes over hip/shoulder
+          Animated.parallel([
+            tm(torsoRot, dir * 38,  140),
+            sp(rootX,    0,  55,  5),
+            sp(crouchY,  0, 200,  8),
+            sp(rBicep, -18, 100,  8),
+            sp(lBicep,  22, 100,  8),
+          ]),
+          // Impact squash
+          Animated.sequence([
+            tm(globalScale, 0.82, 80),
+            sp(globalScale, 1, 220, 8),
+          ]),
+        ]).start(() => resetGuard());
+      }
+
+      // ── 3-HIT MEGA COMBOS (Jab → Cross → Power hook) ─────────────────────────
+      else if (
+        cn.includes("triple jab") || cn.includes("jab-cross") ||
+        cn.includes("five animal") || cn.includes("submission hold") ||
+        cn.includes("1-2") || cn.includes("double palm") ||
+        cn.includes("kote-gaeshi") || cn.includes("praying mantis")
+      ) {
+        Animated.sequence([
+          // HIT 1: Jab (right/lead arm)
+          Animated.parallel([
+            tm(rArmX, dir * -30, 62),
+            sp(rBicep, dir * -38, 600, 7),
+            sp(rFore,  dir *  18, 500, 7),
           ]),
           Animated.parallel([
-            Animated.spring(rArmX,     { toValue: 0, tension: 300, friction: 8, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: 10, tension: 120, friction: 8, useNativeDriver: true }),
+            sp(rArmX,  0,   320, 9),
+            sp(rBicep, -18, 130, 9),
+            sp(rFore,   12, 130, 9),
           ]),
-          // Cross
+          // HIT 2: Cross (left/rear arm, hip rotates)
           Animated.parallel([
-            Animated.timing(lArmX,     { toValue: dir * -26, duration: 60, useNativeDriver: true }),
-            Animated.timing(torsoRot,  { toValue: dir * -14, duration: 60, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: dir * -45, tension: 500, friction: 7, useNativeDriver: true }),
-            Animated.spring(lForeRot,  { toValue: dir * 12,  tension: 400, friction: 7, useNativeDriver: true }),
-          ]),
-          Animated.parallel([
-            Animated.spring(lArmX,     { toValue: 0, tension: 250, friction: 8, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: 20, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(lForeRot,  { toValue: -15, tension: 120, friction: 8, useNativeDriver: true }),
-          ]),
-          // Power hook finish
-          Animated.parallel([
-            Animated.timing(lArmX,     { toValue: dir * -35, duration: 55, useNativeDriver: true }),
-            Animated.timing(lArmY,     { toValue: -12,       duration: 55, useNativeDriver: true }),
-            Animated.timing(torsoRot,  { toValue: dir * 20,  duration: 95, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: dir * -75, tension: 500, friction: 6, useNativeDriver: true }),
+            tm(lArmX,    dir * -28, 60),
+            tm(torsoRot, dir * -16, 60),
+            sp(lBicep,   dir * -48, 500, 7),
+            sp(lFore,    dir *  16, 420, 7),
           ]),
           Animated.parallel([
-            Animated.spring(lArmX,     { toValue: 0, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(lArmY,     { toValue: 0, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(torsoRot,  { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
-            Animated.spring(lBicepRot, { toValue: 20, tension: 100, friction: 8, useNativeDriver: true }),
+            sp(lArmX,    0,   280, 9),
+            sp(lBicep,   22,  130, 9),
+            sp(lFore,   -18,  130, 9),
+            sp(torsoRot, 0,   100, 9),
+          ]),
+          // HIT 3: Power hook (biggest rotation, most impact)
+          Animated.parallel([
+            tm(lArmX,    dir * -38, 56),
+            tm(lArmY,    -15,       56),
+            tm(torsoRot, dir *  24, 100),
+            sp(lBicep,   dir * -80, 480, 6),
+            sp(lFore,    dir *  26, 400, 6),
+          ]),
+          Animated.parallel([
+            sp(lArmX,    0,   130, 9),
+            sp(lArmY,    0,   130, 9),
+            sp(torsoRot, 0,    90, 8),
+            sp(lBicep,  22,   130, 9),
+            sp(lFore,  -18,   130, 9),
           ]),
         ]).start();
+      }
 
-      } else if (cn.match(/palm|crane|tiger|leopard|mantis|redirect/i)) {
-        // PALM / OPEN HAND — upward angled strike
-        Animated.parallel([
-          Animated.sequence([
-            Animated.timing(rArmX,     { toValue: dir * -32, duration: 65, useNativeDriver: true }),
-            Animated.timing(rArmY,     { toValue: -10,       duration: 65, useNativeDriver: true }),
-            Animated.spring(rArmX,     { toValue: 0, tension: 250, friction: 8, useNativeDriver: true }),
-            Animated.spring(rArmY,     { toValue: 0, tension: 250, friction: 8, useNativeDriver: true }),
+      // ── DOUBLE JAB / 1-2 COMBO / COLLAR TIE / DOUBLE GRIP / DOUBLE PALM ─────
+      else if (
+        cn.includes("double jab") || cn.includes("1-2") ||
+        cn.includes("collar tie") || cn.includes("double grip") ||
+        cn.includes("double palm") || cn.includes("praying mantis")
+      ) {
+        Animated.sequence([
+          // Jab 1
+          Animated.parallel([
+            tm(rArmX, dir * -28, 62),
+            sp(rBicep, dir * -35, 560, 7),
           ]),
-          Animated.sequence([
-            Animated.spring(rBicepRot, { toValue: dir * -42, tension: 550, friction: 7, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: dir * -20, tension: 400, friction: 7, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: 10,  tension: 120, friction: 8, useNativeDriver: true }),
+          Animated.parallel([
+            sp(rArmX,  0,   300, 9),
+            sp(rBicep, -18, 130, 9),
           ]),
-          Animated.sequence([
-            Animated.timing(torsoRot, { toValue: dir * -10, duration: 65, useNativeDriver: true }),
-            Animated.spring(torsoRot, { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+          // Jab 2 / Cross
+          Animated.parallel([
+            tm(lArmX,    dir * -26, 60),
+            tm(torsoRot, dir * -13, 58),
+            sp(lBicep,   dir * -40, 500, 7),
+          ]),
+          Animated.parallel([
+            sp(lArmX,    0,   280, 9),
+            sp(lBicep,   22,  130, 9),
+            sp(torsoRot, 0,   110, 9),
           ]),
         ]).start();
+      }
 
-      } else {
-        // DEFAULT JAB — lead right arm shoots forward
+      // ── PALM STRIKE / CRANE / TIGER / LEOPARD ────────────────────────────────
+      else if (
+        cn.includes("palm") || cn.includes("crane") ||
+        cn.includes("tiger") || cn.includes("leopard") || cn.includes("mantis")
+      ) {
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(rArmX,     { toValue: dir * -32, duration: 70, useNativeDriver: true }),
-            Animated.spring(rArmX,     { toValue: 0, tension: 280, friction: 8, useNativeDriver: true }),
+            tm(rArmX,  dir * -34, 68),
+            tm(rArmY,  -12,       68),
+            sp(rArmX,  0, 270, 9),
+            sp(rArmY,  0, 270, 9),
           ]),
           Animated.sequence([
-            Animated.spring(rBicepRot, { toValue: dir * -38, tension: 550, friction: 7, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: dir * 15,  tension: 450, friction: 7, useNativeDriver: true }),
-            Animated.spring(rBicepRot, { toValue: -15, tension: 120, friction: 8, useNativeDriver: true }),
-            Animated.spring(rForeRot,  { toValue: 10,  tension: 120, friction: 8, useNativeDriver: true }),
+            sp(rBicep, dir * -44, 580, 7),
+            sp(rFore,  dir * -22, 500, 7),
+            sp(rBicep, -18, 130, 9),
+            sp(rFore,   12, 130, 9),
           ]),
           Animated.sequence([
-            Animated.timing(torsoY,   { toValue: -5, duration: 65, useNativeDriver: true }),
-            Animated.spring(torsoY,   { toValue: 0, tension: 100, friction: 8, useNativeDriver: true }),
+            tm(torsoRot, dir * -11, 68),
+            sp(torsoRot, 0, 110, 9),
           ]),
           Animated.sequence([
-            Animated.timing(torsoRot, { toValue: dir * -8, duration: 65, useNativeDriver: true }),
-            Animated.spring(torsoRot, { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
+            tm(headRot, dir * -6, 65),
+            sp(headRot, 0, 90, 9),
+          ]),
+        ]).start();
+      }
+
+      // ── TEEP / GRAB (single-input punch-coded grapple) ────────────────────────
+      else if (cn.includes("teep") || cn.includes("body hook")) {
+        Animated.parallel([
+          Animated.sequence([
+            tm(rThigh,   dir * -55, 90),
+            tm(rShin,    dir *  18, 90),
+            tm(torsoRot, dir * -12, 80),
+            sp(rThigh,   10, 110, 8),
+            sp(rShin,    -6, 110, 8),
+            sp(torsoRot, 0,  110, 9),
+          ]),
+        ]).start();
+      }
+
+      // ── DEFAULT JAB ───────────────────────────────────────────────────────────
+      else {
+        Animated.parallel([
+          Animated.sequence([
+            tm(rArmX,  dir * -34, 72),
+            sp(rArmX,  0, 280, 9),
+          ]),
+          Animated.sequence([
+            sp(rBicep, dir * -40, 580, 7),
+            sp(rFore,  dir *  18, 500, 7),
+            sp(rBicep, -18, 130, 9),
+            sp(rFore,   12, 130, 9),
+          ]),
+          Animated.sequence([
+            tm(torsoY, -5, 68),
+            sp(torsoY, 0, 100, 9),
+          ]),
+          Animated.sequence([
+            tm(torsoRot, dir * -9, 68),
+            sp(torsoRot, 0, 100, 9),
           ]),
         ]).start();
       }
     }
   }, [fighter.isAttacking, fighter.isKicking, fighter.attackType, comboName]);
 
-  // ── HURT ───────────────────────────────────────────────────────────────────
+  // ── HURT ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!fighter.isHurt) return;
     const dir = mirrorX ? 1 : -1;
     Animated.parallel([
       Animated.sequence([
-        Animated.timing(shakeX,    { toValue: dir * 16,  duration: 45, useNativeDriver: true }),
-        Animated.timing(shakeX,    { toValue: dir * -12, duration: 45, useNativeDriver: true }),
-        Animated.spring(shakeX,    { toValue: 0, tension: 220, friction: 6, useNativeDriver: true }),
+        tm(shakeX,    dir * 18,  48),
+        tm(shakeX,    dir * -14, 48),
+        sp(shakeX,    0, 230, 6),
       ]),
       Animated.sequence([
-        Animated.timing(shakeY,    { toValue: -10, duration: 55, useNativeDriver: true }),
-        Animated.spring(shakeY,    { toValue: 0, tension: 130, friction: 6, useNativeDriver: true }),
+        tm(shakeY,    -11, 58),
+        sp(shakeY,    0, 140, 6),
       ]),
       Animated.sequence([
-        Animated.timing(bodyScale, { toValue: 0.82, duration: 55, useNativeDriver: true }),
-        Animated.spring(bodyScale, { toValue: 1, tension: 280, friction: 8, useNativeDriver: true }),
+        tm(globalScale, 0.80, 58),
+        sp(globalScale, 1, 300, 9),
       ]),
       Animated.sequence([
-        Animated.timing(headRot,   { toValue: dir * -25, duration: 55, useNativeDriver: true }),
-        Animated.spring(headRot,   { toValue: 0, tension: 170, friction: 6, useNativeDriver: true }),
+        tm(headRot,   dir * -28, 58),
+        sp(headRot,   0, 180, 6),
       ]),
       Animated.sequence([
-        Animated.timing(torsoRot,  { toValue: dir * -18, duration: 55, useNativeDriver: true }),
-        Animated.spring(torsoRot,  { toValue: 0, tension: 120, friction: 7, useNativeDriver: true }),
+        tm(torsoRot,  dir * -20, 60),
+        sp(torsoRot,  0, 140, 7),
       ]),
-      // Arms flung back on impact
-      Animated.spring(lBicepRot,   { toValue: dir * -90, tension: 60, friction: 5, useNativeDriver: true }),
-      Animated.spring(rBicepRot,   { toValue: dir * 90,  tension: 60, friction: 5, useNativeDriver: true }),
-    ]).start(() => resetGuard());
+      // Arms flung wide on impact (physics: hit reaction)
+      sp(lBicep, dir * -95, 65, 5),
+      sp(rBicep, dir *  95, 65, 5),
+    ]).start(() => resetGuard(80));
   }, [fighter.isHurt]);
 
-  // ── WHIFF stumble ──────────────────────────────────────────────────────────
+  // ── WHIFF stumble ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!fighter.isWhiffed) return;
     const fwd = mirrorX ? -1 : 1;
+    // Lurch forward — lost balance because attack found no target
     Animated.sequence([
-      Animated.timing(stumbleX, { toValue: fwd * 25, duration: 210, useNativeDriver: true }),
-      Animated.spring(stumbleX, { toValue: 0, tension: 60, friction: 6, useNativeDriver: true }),
-    ]).start();
-    Animated.sequence([
-      Animated.timing(torsoRot, { toValue: fwd * 30, duration: 210, useNativeDriver: true }),
-      Animated.spring(torsoRot, { toValue: 0, tension: 60, friction: 7, useNativeDriver: true }),
+      Animated.parallel([
+        tm(stumbleX, fwd * 28,  220),
+        tm(torsoRot, fwd * 34,  210),
+        tm(crouchY,  12,        200),
+      ]),
+      Animated.parallel([
+        sp(stumbleX, 0, 55, 6),
+        sp(torsoRot, 0, 60, 7),
+        sp(crouchY,  0, 70, 7),
+      ]),
     ]).start();
   }, [fighter.isWhiffed]);
 
-  // ── FALL / KO ──────────────────────────────────────────────────────────────
+  // ── KO FALL — ragdoll ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!fighter.isFallen) return;
     const dir = mirrorX ? -1 : 1;
     Animated.parallel([
-      Animated.spring(fallRot,   { toValue: dir * 90, tension: 18, friction: 5, useNativeDriver: true }),
-      Animated.spring(rootY,     { toValue: 40,       tension: 14, friction: 5, useNativeDriver: true }),
-      Animated.spring(lBicepRot, { toValue: -140,     tension: 14, friction: 4, useNativeDriver: true }),
-      Animated.spring(rBicepRot, { toValue: 140,      tension: 14, friction: 4, useNativeDriver: true }),
-      Animated.spring(lThighRot, { toValue: 50,       tension: 14, friction: 4, useNativeDriver: true }),
-      Animated.spring(rThighRot, { toValue: -40,      tension: 14, friction: 4, useNativeDriver: true }),
-      Animated.spring(lShinRot,  { toValue: -30,      tension: 14, friction: 4, useNativeDriver: true }),
-      Animated.spring(rShinRot,  { toValue: 30,       tension: 14, friction: 4, useNativeDriver: true }),
+      sp(fallRot,  dir * 90, 20, 5),
+      sp(rootY,    42,       16, 5),
+      sp(lBicep,  -140,      16, 4),
+      sp(rBicep,   140,      16, 4),
+      sp(lFore,   -50,       16, 4),
+      sp(rFore,    50,       16, 4),
+      sp(lThigh,   55,       16, 4),
+      sp(rThigh,  -45,       16, 4),
+      sp(lShin,   -35,       16, 4),
+      sp(rShin,    35,       16, 4),
     ]).start();
   }, [fighter.isFallen]);
 
-  // ── Interpolations ─────────────────────────────────────────────────────────
-  const toRot = (val: Animated.Value, lo: number, hi: number) =>
-    val.interpolate({ inputRange: [lo, hi], outputRange: [`${lo}deg`, `${hi}deg`] });
+  // ── Interpolations ────────────────────────────────────────────────────────────
+  const rot = (v: Animated.Value, lo: number, hi: number) =>
+    v.interpolate({ inputRange: [lo, hi], outputRange: [`${lo}deg`, `${hi}deg`] });
 
-  const fallRotDeg   = toRot(fallRot,   -90, 90);
-  const torsoRotDeg  = toRot(torsoRot,  -60, 60);
-  const headRotDeg   = toRot(headRot,   -45, 45);
-  const rBicepDeg    = toRot(rBicepRot, -150, 150);
-  const rForeDeg     = toRot(rForeRot,  -60, 60);
-  const lBicepDeg    = toRot(lBicepRot, -150, 150);
-  const lForeDeg     = toRot(lForeRot,  -60, 60);
-  const lThighDeg    = toRot(lThighRot, -120, 120);
-  const rThighDeg    = toRot(rThighRot, -120, 120);
-  const lShinDeg     = toRot(lShinRot,  -60, 60);
-  const rShinDeg     = toRot(rShinRot,  -60, 60);
+  const fallDeg  = rot(fallRot,  -90,  90);
+  const torsoDeg = rot(torsoRot, -65,  65);
+  const headDeg  = rot(headRot,  -50,  50);
+  const rBicepD  = rot(rBicep,  -160, 160);
+  const rForeD   = rot(rFore,    -60,  60);
+  const lBicepD  = rot(lBicep,  -160, 160);
+  const lForeD   = rot(lFore,    -60,  60);
+  const lThighD  = rot(lThigh,  -130, 130);
+  const rThighD  = rot(rThigh,  -130, 130);
+  const lShinD   = rot(lShin,    -60,  60);
+  const rShinD   = rot(rShin,    -60,  60);
 
   const idleY = fighter.isFallen
     ? new Animated.Value(0)
     : fighter.animState === "walk"
     ? walkBob
-    : breathAnim;
+    : breath;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <Animated.View
       style={{
         position: "absolute",
-        left: screenX - SHOULDER_W / 2,
+        left: screenX - SH_W / 2,
         top:  screenY - TOTAL_H,
         transform: [
           { translateX: shakeX },
@@ -780,296 +921,316 @@ export function FighterView({
           { translateY: rootY },
           { translateY: idleY },
           { scaleX: mirrorX ? -1 : 1 },
-          { scale: bodyScale },
-          { rotate: fallRotDeg },
+          { scale: globalScale },
+          { rotate: fallDeg },
         ],
       }}
     >
-      {/* ── TORSO WRAPPER (handles twist) ───────────────────────────────── */}
-      <Animated.View
-        style={{
-          transform: [{ translateY: torsoY }, { rotate: torsoRotDeg }],
-          alignItems: "center",
-        }}
-      >
+      {/* ── TORSO WRAPPER ─────────────────────────────────────────────────────── */}
+      <Animated.View style={{
+        transform: [{ translateY: torsoY }, { translateY: crouchY }, { rotate: torsoDeg }],
+        alignItems: "center",
+      }}>
 
-        {/* ── HEAD ────────────────────────────────────────────────────────── */}
-        <Animated.View style={{ transform: [{ translateY: headY }, { rotate: headRotDeg }] }}>
-          <Head size={HEAD_W} skinColor={skinColor} hurtFlash={isHurt} mirrorX={mirrorX} />
+        {/* ── HEAD ─────────────────────────────────────────────────────────────── */}
+        <Animated.View style={{ transform: [{ translateY: headY }, { rotate: headDeg }] }}>
+          <FighterHead s={s} skin={skin} shadowSkin={shadowSkin} hurt={hurt} mirrorX={mirrorX} />
         </Animated.View>
 
-        {/* ── NECK ────────────────────────────────────────────────────────── */}
+        {/* ── NECK ─────────────────────────────────────────────────────────────── */}
         <View style={{
           width: NECK_W, height: NECK_H,
-          backgroundColor: skinColor,
+          backgroundColor: skin,
           borderRadius: NECK_W / 2,
+          borderLeftWidth: 1, borderRightWidth: 1,
+          borderColor: rgba(shadowSkin, 0.3),
           marginTop: -2,
         }} />
 
-        {/* ── SHOULDERS ───────────────────────────────────────────────────── */}
-        <View style={{ width: SHOULDER_W, height: SHOULDER_H, position: "relative", marginTop: -2 }}>
-          {/* Left shoulder cap */}
-          <View style={{
-            position: "absolute", left: 0, top: 0,
-            width: SHOULDER_H * 1.4, height: SHOULDER_H * 1.4,
-            borderRadius: SHOULDER_H * 0.7,
-            backgroundColor: shirtColor,
-            borderWidth: 2, borderColor: darken(color, 60),
-          }} />
-          {/* Right shoulder cap */}
-          <View style={{
-            position: "absolute", right: 0, top: 0,
-            width: SHOULDER_H * 1.4, height: SHOULDER_H * 1.4,
-            borderRadius: SHOULDER_H * 0.7,
-            backgroundColor: shirtColor,
-            borderWidth: 2, borderColor: darken(color, 60),
-          }} />
-          {/* Trapezius bar connecting shoulders */}
-          <View style={{
-            position: "absolute",
-            left: SHOULDER_H * 0.5, right: SHOULDER_H * 0.5,
-            top: 0, height: SHOULDER_H,
-            backgroundColor: shirtColor,
-          }} />
-        </View>
+        {/* ── SHOULDERS + ARMS + TORSO ROW ─────────────────────────────────────── */}
+        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: -4 }}>
 
-        {/* ── ARMS + TORSO row ────────────────────────────────────────────── */}
-        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: -SHOULDER_H * 0.2 }}>
-
-          {/* LEFT ARM */}
+          {/* LEFT ARM ─────────────────────────────────────────────────────────── */}
           <Animated.View style={{
-            transform: [{ translateX: lArmX }, { translateY: lArmY }, { rotate: lBicepDeg }],
             alignItems: "center",
+            transform: [{ translateX: lArmX }, { translateY: lArmY }, { rotate: lBicepD }],
           }}>
+            {/* Shoulder cap */}
+            <View style={{
+              width: BIC_W + 4, height: BIC_W + 4,
+              borderRadius: (BIC_W + 4) / 2,
+              backgroundColor: outfit,
+              borderWidth: 2, borderColor: outfitDark,
+              marginBottom: -4,
+            }} />
             {/* Bicep */}
             <View style={{
-              width: BICEP_W, height: BICEP_H,
-              borderRadius: BICEP_W / 2,
-              backgroundColor: shirtColor,
-              borderWidth: 1.5, borderColor: darken(color, 60),
+              width: BIC_W, height: BIC_H,
+              borderRadius: BIC_W / 2,
+              backgroundColor: outfit,
+              borderWidth: 1.5, borderColor: outfitDark,
             }} />
             {/* Elbow joint */}
             <View style={{
-              width: BICEP_W * 0.85, height: BICEP_W * 0.85,
-              borderRadius: BICEP_W * 0.425,
-              backgroundColor: skinColor,
+              width: BIC_W * 0.82, height: BIC_W * 0.82,
+              borderRadius: BIC_W * 0.41,
+              backgroundColor: skin,
+              borderWidth: 1, borderColor: rgba(shadowSkin, 0.35),
               marginTop: -4,
             }} />
             {/* Forearm */}
-            <Animated.View style={{ transform: [{ rotate: lForeDeg }], alignItems: "center" }}>
+            <Animated.View style={{ alignItems: "center", transform: [{ rotate: lForeD }] }}>
               <View style={{
-                width: FORE_W, height: FORE_H,
-                borderRadius: FORE_W / 2,
-                backgroundColor: skinColor,
-                borderWidth: 1, borderColor: darken(skinColor, 20),
+                width: FOR_W, height: FOR_H,
+                borderRadius: FOR_W / 2,
+                backgroundColor: skin,
+                borderWidth: 1, borderColor: rgba(shadowSkin, 0.3),
                 marginTop: -3,
               }} />
-              {/* Glove */}
-              <Glove size={GLOVE_S} color={gloveColor} style={{ marginTop: -2 }} />
+              <View style={{ marginTop: -2 }}>
+                <Glove s={s} color={gloveC} dark={gloveDark} />
+              </View>
             </Animated.View>
           </Animated.View>
 
-          {/* TORSO */}
-          <View style={{ flex: 1, alignItems: "center" }}>
+          {/* TORSO ────────────────────────────────────────────────────────────── */}
+          <View style={{ alignItems: "center" }}>
             {/* Upper chest */}
             <View style={{
-              width: TORSO_W, height: TORSO_H * 0.42,
-              borderRadius: TORSO_W * 0.12,
-              backgroundColor: shirtColor,
-              borderWidth: 2, borderColor: darken(color, 60),
+              width: TOR_W, height: TOR_H * 0.44,
+              borderRadius: TOR_W * 0.12,
+              backgroundColor: outfit,
+              borderWidth: 2, borderColor: outfitDark,
               overflow: "hidden",
             }}>
-              {/* Chest muscle highlight */}
+              {/* Chest highlight */}
               <View style={{
-                position: "absolute", top: 6, left: 6, right: 6, height: TORSO_H * 0.18,
-                borderRadius: TORSO_W * 0.1,
-                backgroundColor: alpha(lighten(color, 60), 0.18),
+                position: "absolute", top: 7, left: 8, right: 8,
+                height: TOR_H * 0.18,
+                borderRadius: TOR_W * 0.1,
+                backgroundColor: rgba("#ffffff", 0.14),
               }} />
-              {/* Chest centre line */}
+              {/* Chest muscles division line */}
               <View style={{
-                position: "absolute", top: 0, bottom: 0, left: TORSO_W / 2 - 1,
-                width: 2, backgroundColor: alpha(darken(color, 50), 0.4),
+                position: "absolute", top: 0, bottom: 0,
+                left: TOR_W / 2 - 1, width: 2,
+                backgroundColor: rgba(outfitDark, 0.38),
               }} />
             </View>
             {/* Lower torso / abs */}
             <View style={{
-              width: TORSO_W * 0.88, height: TORSO_H * 0.38,
-              borderRadius: TORSO_W * 0.1,
-              backgroundColor: lighten(shirtColor, 10),
-              borderWidth: 1.5, borderColor: darken(color, 60),
-              marginTop: 2,
-              overflow: "hidden",
+              width: TOR_W * 0.86, height: TOR_H * 0.40,
+              borderRadius: TOR_W * 0.10,
+              backgroundColor: lighten(color, 8),
+              borderWidth: 1.5, borderColor: outfitDark,
+              marginTop: 2, overflow: "hidden",
             }}>
               {/* Ab lines */}
-              {[0.3, 0.6].map((t, i) => (
+              {[0.28, 0.56, 0.82].map((t, i) => (
                 <View key={i} style={{
                   position: "absolute",
-                  top: TORSO_H * 0.38 * t,
-                  left: 6, right: 6, height: 1.5,
-                  backgroundColor: alpha(darken(color, 50), 0.3),
+                  top: TOR_H * 0.40 * t,
+                  left: 8, right: 8, height: 1.5,
+                  backgroundColor: rgba(outfitDark, 0.28),
                 }} />
               ))}
+              {/* Vertical ab divide */}
+              <View style={{
+                position: "absolute", top: 0, bottom: 0,
+                left: TOR_W * 0.86 / 2 - 1, width: 1.5,
+                backgroundColor: rgba(outfitDark, 0.22),
+              }} />
             </View>
           </View>
 
-          {/* RIGHT ARM */}
+          {/* RIGHT ARM ────────────────────────────────────────────────────────── */}
           <Animated.View style={{
-            transform: [{ translateX: rArmX }, { translateY: rArmY }, { rotate: rBicepDeg }],
             alignItems: "center",
+            transform: [{ translateX: rArmX }, { translateY: rArmY }, { rotate: rBicepD }],
           }}>
             <View style={{
-              width: BICEP_W, height: BICEP_H,
-              borderRadius: BICEP_W / 2,
-              backgroundColor: shirtColor,
-              borderWidth: 1.5, borderColor: darken(color, 60),
+              width: BIC_W + 4, height: BIC_W + 4,
+              borderRadius: (BIC_W + 4) / 2,
+              backgroundColor: outfit,
+              borderWidth: 2, borderColor: outfitDark,
+              marginBottom: -4,
             }} />
             <View style={{
-              width: BICEP_W * 0.85, height: BICEP_W * 0.85,
-              borderRadius: BICEP_W * 0.425,
-              backgroundColor: skinColor,
+              width: BIC_W, height: BIC_H,
+              borderRadius: BIC_W / 2,
+              backgroundColor: outfit,
+              borderWidth: 1.5, borderColor: outfitDark,
+            }} />
+            <View style={{
+              width: BIC_W * 0.82, height: BIC_W * 0.82,
+              borderRadius: BIC_W * 0.41,
+              backgroundColor: skin,
+              borderWidth: 1, borderColor: rgba(shadowSkin, 0.35),
               marginTop: -4,
             }} />
-            <Animated.View style={{ transform: [{ rotate: rForeDeg }], alignItems: "center" }}>
+            <Animated.View style={{ alignItems: "center", transform: [{ rotate: rForeD }] }}>
               <View style={{
-                width: FORE_W, height: FORE_H,
-                borderRadius: FORE_W / 2,
-                backgroundColor: skinColor,
-                borderWidth: 1, borderColor: darken(skinColor, 20),
+                width: FOR_W, height: FOR_H,
+                borderRadius: FOR_W / 2,
+                backgroundColor: skin,
+                borderWidth: 1, borderColor: rgba(shadowSkin, 0.3),
                 marginTop: -3,
               }} />
-              <Glove size={GLOVE_S} color={gloveColor} style={{ marginTop: -2 }} />
+              <View style={{ marginTop: -2 }}>
+                <Glove s={s} color={gloveC} dark={gloveDark} />
+              </View>
             </Animated.View>
           </Animated.View>
 
-        </View>{/* end arms+torso row */}
+        </View>{/* end arms+torso */}
 
-        {/* ── BELT / WAISTBAND ────────────────────────────────────────────── */}
+        {/* ── BELT ──────────────────────────────────────────────────────────────── */}
         <View style={{
-          width: TORSO_W * 0.95, height: 9 * s,
+          width: TOR_W * 0.92, height: 9 * s,
           backgroundColor: "#0a0a1e",
           borderRadius: 4 * s,
-          borderWidth: 1.5, borderColor: "#333",
-          alignSelf: "center",
-          marginTop: 2,
+          borderWidth: 1.5, borderColor: "#2a2a3e",
+          alignSelf: "center", marginTop: 2,
+          overflow: "hidden",
         }}>
-          {/* Belt stripe (fighter color) */}
+          {/* Fighter-color stripe */}
           <View style={{
             position: "absolute", top: 2, bottom: 2,
-            left: 8 * s, width: 18 * s,
+            left: 7 * s, width: 16 * s,
             borderRadius: 2 * s,
-            backgroundColor: alpha(color, 0.7),
+            backgroundColor: rgba(color, 0.72),
+          }} />
+          {/* Belt buckle */}
+          <View style={{
+            position: "absolute",
+            top: 1.5, bottom: 1.5,
+            left: TOR_W * 0.92 / 2 - 7 * s,
+            width: 14 * s,
+            borderRadius: 3 * s,
+            backgroundColor: "#c0a830",
+            borderWidth: 1,
+            borderColor: "#a08820",
           }} />
         </View>
 
-        {/* ── HIPS ────────────────────────────────────────────────────────── */}
+        {/* ── HIPS ──────────────────────────────────────────────────────────────── */}
         <View style={{
           width: HIP_W, height: HIP_H,
-          backgroundColor: shortsColor,
+          backgroundColor: shortsC,
           borderRadius: 4 * s,
-          alignSelf: "center",
-          marginTop: 1,
+          alignSelf: "center", marginTop: 1,
         }} />
 
-        {/* ── LEGS ────────────────────────────────────────────────────────── */}
+        {/* ── LEGS ──────────────────────────────────────────────────────────────── */}
         <View style={{ flexDirection: "row", gap: 4 * s, alignSelf: "center", marginTop: 1 }}>
-          {/* Left leg */}
-          <Animated.View style={{ transform: [{ translateY: lLegY }, { rotate: lThighDeg }], alignItems: "center" }}>
-            {/* Shorts thigh */}
+
+          {/* LEFT LEG */}
+          <Animated.View style={{ alignItems: "center", transform: [{ translateY: lLegY }, { rotate: lThighD }] }}>
+            {/* Shorts / thigh */}
             <View style={{
-              width: THIGH_W, height: THIGH_H * 0.7,
-              borderRadius: THIGH_W / 2,
-              backgroundColor: shortsColor,
-              borderWidth: 1, borderColor: "#333",
+              width: THI_W, height: THI_H * 0.68,
+              borderRadius: THI_W / 2,
+              backgroundColor: shortsC,
+              borderWidth: 1, borderColor: "#222",
               overflow: "hidden",
             }}>
-              {/* Shorts stripe */}
               <View style={{
-                position: "absolute", left: 3 * s, top: 0, bottom: 0, width: 3 * s,
-                backgroundColor: alpha(shortsStripe, 0.7),
+                position: "absolute", left: 3 * s, top: 0, bottom: 0,
+                width: 3 * s, backgroundColor: rgba(stripeC, 0.65),
               }} />
             </View>
-            {/* Knee */}
+            {/* Knee cap */}
             <View style={{
-              width: THIGH_W * 0.85, height: THIGH_W * 0.85,
-              borderRadius: THIGH_W * 0.425,
-              backgroundColor: skinColor,
-              marginTop: -3,
-              borderWidth: 1, borderColor: darken(skinColor, 20),
+              width: THI_W * 0.84, height: THI_W * 0.84,
+              borderRadius: THI_W * 0.42,
+              backgroundColor: skin,
+              borderWidth: 1, borderColor: rgba(shadowSkin, 0.3),
+              marginTop: -4,
             }} />
             {/* Shin */}
-            <Animated.View style={{ transform: [{ rotate: lShinDeg }], alignItems: "center" }}>
+            <Animated.View style={{ alignItems: "center", transform: [{ rotate: lShinD }] }}>
               <View style={{
-                width: SHIN_W, height: SHIN_H,
-                borderRadius: SHIN_W / 2,
-                backgroundColor: skinColor,
-                borderWidth: 1, borderColor: darken(skinColor, 15),
+                width: SHN_W, height: SHN_H,
+                borderRadius: SHN_W / 2,
+                backgroundColor: skin,
+                borderWidth: 1, borderColor: rgba(shadowSkin, 0.25),
                 marginTop: -3,
               }} />
               {/* Foot / shoe */}
               <View style={{
                 width: FOOT_W, height: FOOT_H,
-                borderRadius: FOOT_H * 0.5,
-                backgroundColor: shoeColor,
-                marginTop: -2,
-                marginLeft: mirrorX ? -FOOT_W * 0.25 : FOOT_W * 0.25,
-                borderWidth: 1, borderColor: "#333",
+                borderRadius: FOOT_H * 0.45,
+                backgroundColor: shoeC,
+                marginTop: -3,
+                marginLeft: mirrorX ? -FOOT_W * 0.22 : FOOT_W * 0.22,
+                borderWidth: 1, borderColor: "#2a2a2a",
+                overflow: "hidden",
               }}>
-                {/* Shoe sole */}
                 <View style={{
-                  position: "absolute", bottom: 0, left: 0, right: 0, height: 3,
-                  backgroundColor: "#555",
-                  borderRadius: 2,
+                  position: "absolute", bottom: 0, left: 0, right: 0,
+                  height: 3, backgroundColor: "#555", borderRadius: 2,
+                }} />
+                <View style={{
+                  position: "absolute", top: 2, left: 3, right: FOOT_W * 0.3,
+                  height: FOOT_H * 0.35, borderRadius: 2,
+                  backgroundColor: rgba("#ffffff", 0.08),
                 }} />
               </View>
             </Animated.View>
           </Animated.View>
 
-          {/* Right leg */}
-          <Animated.View style={{ transform: [{ translateY: rLegY }, { rotate: rThighDeg }], alignItems: "center" }}>
+          {/* RIGHT LEG */}
+          <Animated.View style={{ alignItems: "center", transform: [{ translateY: rLegY }, { rotate: rThighD }] }}>
             <View style={{
-              width: THIGH_W, height: THIGH_H * 0.7,
-              borderRadius: THIGH_W / 2,
-              backgroundColor: shortsColor,
-              borderWidth: 1, borderColor: "#333",
+              width: THI_W, height: THI_H * 0.68,
+              borderRadius: THI_W / 2,
+              backgroundColor: shortsC,
+              borderWidth: 1, borderColor: "#222",
               overflow: "hidden",
             }}>
               <View style={{
-                position: "absolute", left: 3 * s, top: 0, bottom: 0, width: 3 * s,
-                backgroundColor: alpha(shortsStripe, 0.7),
+                position: "absolute", left: 3 * s, top: 0, bottom: 0,
+                width: 3 * s, backgroundColor: rgba(stripeC, 0.65),
               }} />
             </View>
             <View style={{
-              width: THIGH_W * 0.85, height: THIGH_W * 0.85,
-              borderRadius: THIGH_W * 0.425,
-              backgroundColor: skinColor,
-              marginTop: -3,
-              borderWidth: 1, borderColor: darken(skinColor, 20),
+              width: THI_W * 0.84, height: THI_W * 0.84,
+              borderRadius: THI_W * 0.42,
+              backgroundColor: skin,
+              borderWidth: 1, borderColor: rgba(shadowSkin, 0.3),
+              marginTop: -4,
             }} />
-            <Animated.View style={{ transform: [{ rotate: rShinDeg }], alignItems: "center" }}>
+            <Animated.View style={{ alignItems: "center", transform: [{ rotate: rShinD }] }}>
               <View style={{
-                width: SHIN_W, height: SHIN_H,
-                borderRadius: SHIN_W / 2,
-                backgroundColor: skinColor,
-                borderWidth: 1, borderColor: darken(skinColor, 15),
+                width: SHN_W, height: SHN_H,
+                borderRadius: SHN_W / 2,
+                backgroundColor: skin,
+                borderWidth: 1, borderColor: rgba(shadowSkin, 0.25),
                 marginTop: -3,
               }} />
               <View style={{
                 width: FOOT_W, height: FOOT_H,
-                borderRadius: FOOT_H * 0.5,
-                backgroundColor: shoeColor,
-                marginTop: -2,
-                marginLeft: mirrorX ? -FOOT_W * 0.25 : FOOT_W * 0.25,
-                borderWidth: 1, borderColor: "#333",
+                borderRadius: FOOT_H * 0.45,
+                backgroundColor: shoeC,
+                marginTop: -3,
+                marginLeft: mirrorX ? -FOOT_W * 0.22 : FOOT_W * 0.22,
+                borderWidth: 1, borderColor: "#2a2a2a",
+                overflow: "hidden",
               }}>
                 <View style={{
-                  position: "absolute", bottom: 0, left: 0, right: 0, height: 3,
-                  backgroundColor: "#555", borderRadius: 2,
+                  position: "absolute", bottom: 0, left: 0, right: 0,
+                  height: 3, backgroundColor: "#555", borderRadius: 2,
+                }} />
+                <View style={{
+                  position: "absolute", top: 2, left: 3, right: FOOT_W * 0.3,
+                  height: FOOT_H * 0.35, borderRadius: 2,
+                  backgroundColor: rgba("#ffffff", 0.08),
                 }} />
               </View>
             </Animated.View>
           </Animated.View>
-        </View>
 
+        </View>{/* end legs */}
       </Animated.View>
     </Animated.View>
   );

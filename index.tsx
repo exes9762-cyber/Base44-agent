@@ -59,10 +59,21 @@ export default function GameScreen() {
   const playerScreenX = arenaToScreen(state.player.x, W);
   const enemyScreenX  = arenaToScreen(state.enemy.x, W);
 
+  // Combo banner
+  const now = Date.now();
+  const showCombo = state.lastComboName && now - state.lastComboTime < 1500;
+
   return (
     <View style={styles.root}>
-      {/* Arena background — always visible */}
+      {/* Arena background */}
       <Arena />
+
+      {/* Combo name flash */}
+      {isFighting && showCombo && (
+        <View style={styles.comboBanner} pointerEvents="none">
+          <Text style={styles.comboText}>{state.lastComboName}!</Text>
+        </View>
+      )}
 
       {/* Fighters */}
       {showFighters && (
@@ -86,7 +97,7 @@ export default function GameScreen() {
         </>
       )}
 
-      {/* HUD — only during active fighting */}
+      {/* HUD */}
       {isFighting && (
         <View style={[styles.hudWrapper, { paddingTop: insets.top + 4 }]}>
           <GameHUD state={state} />
@@ -98,7 +109,7 @@ export default function GameScreen() {
         <QTEModal qte={state.qte} onAction={(t: QTEType) => doQTEAction(t)} />
       )}
 
-      {/* Controls — only during active fighting */}
+      {/* Controls */}
       {isFighting && (
         <View style={[styles.controlsArea, { paddingBottom: Math.max(insets.bottom, 6) }]}>
           {state.unlockedStyles.length > 1 && (
@@ -117,7 +128,7 @@ export default function GameScreen() {
         </View>
       )}
 
-      {/* Between-rounds banner */}
+      {/* Between-rounds */}
       {isBetween && (
         <View style={styles.betweenOverlay} pointerEvents="none">
           <Text style={styles.betweenText}>ROUND {state.round}</Text>
@@ -125,7 +136,7 @@ export default function GameScreen() {
         </View>
       )}
 
-      {/* Main menu */}
+      {/* Menu */}
       {isMenu && (
         <MenuScreen
           state={state}
@@ -139,16 +150,12 @@ export default function GameScreen() {
         />
       )}
 
-      {/* Pre-fight card */}
+      {/* Fight card */}
       {isFightCard && (
-        <FightCard
-          state={state}
-          onFight={startFight}
-          onGoHome={goToMenu}
-        />
+        <FightCard state={state} onFight={startFight} onGoHome={goToMenu} />
       )}
 
-      {/* WIN overlay */}
+      {/* Win */}
       {isUpgrade && (
         <WinScreen
           won
@@ -159,7 +166,7 @@ export default function GameScreen() {
         />
       )}
 
-      {/* LOSE overlay */}
+      {/* Lose */}
       {isLose && (
         <WinScreen
           won={false}
@@ -170,7 +177,7 @@ export default function GameScreen() {
         />
       )}
 
-      {/* Dad letter — always on top */}
+      {/* Dad letter */}
       {state.activeLetter && (
         <DadLetter letter={state.activeLetter} onDismiss={dismissLetter} />
       )}
@@ -182,6 +189,24 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#050302" },
   hudWrapper: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
   controlsArea: { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 },
+  comboBanner: {
+    position: "absolute",
+    top: "28%",
+    left: 0, right: 0,
+    alignItems: "center",
+    zIndex: 50,
+    pointerEvents: "none",
+  },
+  comboText: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#ffdd00",
+    fontFamily: "Inter_700Bold",
+    textShadowColor: "#ff6600",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 14,
+    letterSpacing: 2,
+  },
   betweenOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#00000077",
@@ -191,7 +216,7 @@ const styles = StyleSheet.create({
   },
   betweenText: {
     fontSize: 48,
-    fontWeight: "700" as const,
+    fontWeight: "700",
     color: "#ffffff",
     letterSpacing: 6,
     fontFamily: "Inter_700Bold",
@@ -201,7 +226,7 @@ const styles = StyleSheet.create({
   },
   betweenSub: {
     fontSize: 20,
-    fontWeight: "700" as const,
+    fontWeight: "700",
     color: "#ff6b00",
     letterSpacing: 8,
     fontFamily: "Inter_700Bold",
