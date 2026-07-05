@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>UFG Mobile — Ultra Fighting Game</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+:root{--bg:#050302;--card:#111;--primary:#ff6b00;--gold:#ffdd00;--red:#e74c3c;--green:#2ecc71;--blue:#3498db;--text:#fff;--muted:#888}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;touch-action:none}
+#game{position:fixed;inset:0;display:flex;flex-direction:column}
+canvas{position:absolute;inset:0;width:100%;height:100%;z-index:1}
+
+/* Screens */
+.screen{position:absolute;inset:0;z-index:10;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.screen.active{display:flex}
+
+/* Menu */
+.menu-title{font-size:42px;font-weight:900;color:var(--primary);text-shadow:0 0 20px rgba(255,107,0,.5);letter-spacing:3px;margin-bottom:4px}
+.menu-sub{font-size:14px;color:var(--muted);margin-bottom:24px;letter-spacing:2px}
+.menu-card{background:var(--card);border:1px solid #222;border-radius:12px;padding:20px;margin:8px 0;width:100%;max-width:420px}
+.menu-card h3{font-size:16px;color:var(--primary);margin-bottom:10px}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1a1a1a}
+.stat-row:last-child{border:none}
+.stat-label{font-size:14px;color:#ccc}
+.stat-val{font-size:14px;font-weight:700;color:var(--gold)}
+.stat-bar{width:80px;height:6px;background:#222;border-radius:3px;overflow:hidden;margin-left:8px}
+.stat-bar-fill{height:100%;background:var(--primary);border-radius:3px}
+.btn{background:var(--primary);color:#fff;border:none;border-radius:8px;padding:14px 28px;font-size:16px;font-weight:700;cursor:pointer;margin:6px;transition:transform .1s}
+.btn:active{transform:scale(.96)}
+.btn.secondary{background:#222;color:#ccc}
+.btn.danger{background:var(--red)}
+.btn.large{padding:18px 40px;font-size:20px}
+
+/* Style grid */
+.style-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;width:100%;max-width:420px}
+.style-card{background:var(--card);border:2px solid #222;border-radius:10px;padding:12px;text-align:center;cursor:pointer;transition:border-color .2s}
+.style-card.selected{border-color:var(--primary)}
+.style-card.locked{opacity:.4}
+.style-name{font-size:13px;font-weight:700;margin-top:4px}
+.style-desc{font-size:10px;color:var(--muted);margin-top:4px}
+.style-cost{font-size:11px;color:var(--gold);margin-top:4px}
+.style-color{width:24px;height:24px;border-radius:50%;margin:0 auto}
+
+/* Fight card */
+.fc-name{font-size:32px;font-weight:900;letter-spacing:2px}
+.fc-nick{font-size:16px;color:var(--primary);font-style:italic;margin-bottom:8px}
+.fc-row{font-size:13px;color:#ccc;margin:4px 0}
+.fc-weak{font-size:13px;color:var(--gold);margin-top:8px}
+
+/* HUD */
+#hud{position:absolute;top:0;left:0;right:0;z-index:5;display:none;padding:12px 16px;justify-content:space-between;align-items:flex-start}
+#hud.active{display:flex}
+.hp-block{flex:1;max-width:45%}
+.hp-name{font-size:12px;font-weight:700;margin-bottom:3px;text-transform:uppercase;letter-spacing:1px}
+.hp-bar{height:10px;background:#222;border-radius:5px;overflow:hidden;border:1px solid #333}
+.hp-fill{height:100%;border-radius:4px;transition:width .3s}
+.hp-fill.player{background:linear-gradient(90deg,var(--green),#27ae60)}
+.hp-fill.enemy{background:linear-gradient(90deg,var(--red),#c0392b)}
+.round-info{text-align:center;font-size:11px;color:var(--muted);padding:0 8px}
+.round-dots{display:flex;gap:4px;justify-content:center;margin-top:4px}
+.round-dot{width:8px;height:8px;border-radius:50%;background:#333}
+.round-dot.win{background:var(--green)}
+.round-dot.lose{background:var(--red)}
+
+/* Combo flash */
+#comboFlash{position:absolute;top:25%;left:0;right:0;text-align:center;z-index:6;font-size:28px;font-weight:900;color:var(--gold);text-shadow:0 0 14px rgba(255,221,0,.6);pointer-events:none;opacity:0;transition:opacity .3s;letter-spacing:2px}
+#comboFlash.show{opacity:1}
+
+/* Damage numbers */
+.dmg-num{position:absolute;z-index:7;font-weight:900;pointer-events:none;animation:dmgFloat 1s ease-out forwards}
+.dmg-num.player{color:var(--red)}
+.dmg-num.enemy{color:var(--gold)}
+.dmg-num.crit{font-size:28px;text-shadow:0 0 10px rgba(255,100,0,.8)}
+.dmg-num.normal{font-size:20px}
+@keyframes dmgFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-60px) scale(1.3)}}
+
+/* QTE */
+#qte{position:absolute;inset:0;z-index:8;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.3)}
+#qte.active{display:flex}
+.qte-text{font-size:22px;font-weight:700;margin-bottom:16px;text-shadow:0 0 10px rgba(255,107,0,.5)}
+.qte-buttons{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.qte-btn{width:80px;height:80px;border-radius:50%;border:3px solid;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;cursor:pointer;background:rgba(0,0,0,.5)}
+.qte-btn:active{transform:scale(.9)}
+.qte-btn[data-type="DODGE"]{border-color:var(--blue);color:var(--blue)}
+.qte-btn[data-type="DUCK"]{border-color:var(--green);color:var(--green)}
+.qte-btn[data-type="PARRY"]{border-color:var(--gold);color:var(--gold)}
+.qte-btn[data-type="COUNTER"]{border-color:var(--red);color:var(--red)}
+.qte-timer{width:120px;height:4px;background:#333;border-radius:2px;margin-top:16px;overflow:hidden}
+.qte-timer-fill{height:100%;background:var(--primary);transition:width .1s linear}
+
+/* Controls */
+#controls{position:absolute;bottom:0;left:0;right:0;z-index:5;display:none;padding:16px;justify-content:space-between;align-items:flex-end}
+#controls.active{display:flex}
+.ctrl-group{display:flex;gap:10px}
+.ctrl-btn{width:64px;height:64px;border-radius:50%;border:2px solid #333;background:rgba(20,20,20,.85);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:none}
+.ctrl-btn:active{transform:scale(.9);background:rgba(40,40,40,.9)}
+.ctrl-btn.punch{border-color:var(--blue);color:var(--blue)}
+.ctrl-btn.kick{border-color:var(--red);color:var(--red)}
+.ctrl-btn.move{border-color:#555;width:50px;height:50px;font-size:20px}
+
+/* Between rounds */
+#between{position:absolute;inset:0;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.7)}
+#between.active{display:flex}
+.between-round{font-size:48px;font-weight:900;letter-spacing:6px;text-shadow:0 0 20px rgba(255,107,0,.5)}
+.between-fight{font-size:20px;color:var(--primary);letter-spacing:8px;margin-top:8px}
+
+/* Win/Lose */
+.result-title{font-size:42px;font-weight:900;margin-bottom:12px}
+.result-title.win{color:var(--green);text-shadow:0 0 20px rgba(46,204,113,.4)}
+.result-title.lose{color:var(--red);text-shadow:0 0 20px rgba(231,76,60,.4)}
+.result-coins{font-size:20px;color:var(--gold);margin-bottom:8px}
+.result-streak{font-size:14px;color:var(--muted);margin-bottom:20px}
+
+/* Style switcher */
+#styleSwitch{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:5;display:none;gap:6px}
+#styleSwitch.active{display:flex}
+.sw-btn{padding:4px 10px;border-radius:6px;border:1px solid #333;background:rgba(20,20,20,.85);color:#aaa;font-size:10px;cursor:pointer}
+.sw-btn.active{border-color:var(--primary);color:var(--primary)}
+
+/* Scrollbar */
+.screen::-webkit-scrollbar{width:4px}
+.screen::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+
+/* Difficulty */
+.diff-row{display:flex;gap:8px;justify-content:center;margin:12px 0}
+.diff-btn{padding:6px 16px;border-radius:6px;border:2px solid #333;background:#111;color:#888;font-size:12px;cursor:pointer}
+.diff-btn.active{border-color:var(--primary);color:var(--primary)}
+
+@media(max-width:380px){.menu-title{font-size:32px}.btn.large{padding:14px 28px;font-size:16px}}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hp-block">
+    <div class="hp-name" id="pName">YOU</div>
+    <div class="hp-bar"><div class="hp-fill player" id="pHpBar" style="width:100%"></div></div>
+  </div>
+  <div class="round-info">
+    <div id="roundLabel">ROUND 1</div>
+    <div class="round-dots" id="roundDots"></div>
+  </div>
+  <div class="hp-block" style="text-align:right">
+    <div class="hp-name" id="eName">ENEMY</div>
+    <div class="hp-bar"><div class="hp-fill enemy" id="eHpBar" style="width:100%;float:right"></div></div>
+  </div>
+</div>
+
+<!-- Combo flash -->
+<div id="comboFlash"></div>
+
+<!-- QTE -->
+<div id="qte">
+  <div class="qte-text" id="qteText">DODGE!</div>
+  <div class="qte-buttons">
+    <div class="qte-btn" data-type="DODGE">DODGE<br>←/→</div>
+    <div class="qte-btn" data-type="DUCK">DUCK<br>↓</div>
+    <div class="qte-btn" data-type="PARRY">PARRY<br>↑</div>
+    <div class="qte-btn" data-type="COUNTER">COUNTER<br>P</div>
+  </div>
+  <div class="qte-timer"><div class="qte-timer-fill" id="qteTimerFill"></div></div>
+</div>
+
+<!-- Style switcher -->
+<div id="styleSwitch"></div>
+
+<!-- Controls -->
+<div id="controls">
+  <div class="ctrl-group">
+    <div class="ctrl-btn move" data-action="left">◀</div>
+    <div class="ctrl-btn move" data-action="right">▶</div>
+  </div>
+  <div class="ctrl-group">
+    <div class="ctrl-btn punch" data-action="punch">PUNCH</div>
+    <div class="ctrl-btn kick" data-action="kick">KICK</div>
+  </div>
+</div>
+
+<!-- Between rounds -->
+<div id="between">
+  <div class="between-round" id="betweenRound">ROUND 2</div>
+  <div class="between-fight">FIGHT!</div>
+</div>
+
+<!-- Menu Screen -->
+<div class="screen" id="menuScreen">
+  <div class="menu-title">UFG MOBILE</div>
+  <div class="menu-sub">ULTRA FIGHTING GAME</div>
+
+  <div class="menu-card">
+    <h3>STATS</h3>
+    <div class="stat-row"><span class="stat-label">Wins</span><span class="stat-val" id="statWins">0</span></div>
+    <div class="stat-row"><span class="stat-label">Win Streak</span><span class="stat-val" id="statStreak">0</span></div>
+    <div class="stat-row"><span class="stat-label">Coins</span><span class="stat-val" id="statCoins">0</span></div>
+    <div class="stat-row"><span class="stat-label">Strength</span><span style="display:flex;align-items:center"><span class="stat-val" id="statStr">1</span><div class="stat-bar"><div class="stat-bar-fill" id="strBar" style="width:10%"></div></div></span></div>
+    <div class="stat-row"><span class="stat-label">Agility</span><span style="display:flex;align-items:center"><span class="stat-val" id="statAgi">1</span><div class="stat-bar"><div class="stat-bar-fill" id="agiBar" style="width:10%"></div></div></span></div>
+    <div class="stat-row"><span class="stat-label">Timing</span><span style="display:flex;align-items:center"><span class="stat-val" id="statTim">1</span><div class="stat-bar"><div class="stat-bar-fill" id="timBar" style="width:10%"></div></span></div></div>
+  </div>
+
+  <div class="menu-card">
+    <h3>DIFFICULTY</h3>
+    <div class="diff-row">
+      <div class="diff-btn" data-diff="easy">Easy</div>
+      <div class="diff-btn active" data-diff="normal">Normal</div>
+      <div class="diff-btn" data-diff="hard">Hard</div>
+    </div>
+  </div>
+
+  <div class="menu-card">
+    <h3>FIGHTING STYLE</h3>
+    <div class="style-grid" id="styleGrid"></div>
+  </div>
+
+  <div class="menu-card">
+    <h3>UPGRADE STATS</h3>
+    <div class="stat-row"><span class="stat-label">Strength (damage)</span><button class="btn secondary" id="upStr" style="padding:4px 12px;font-size:12px">5💰</button></div>
+    <div class="stat-row"><span class="stat-label">Agility (speed)</span><button class="btn secondary" id="upAgi" style="padding:4px 12px;font-size:12px">5💰</button></div>
+    <div class="stat-row"><span class="stat-label">Timing (crits)</span><button class="btn secondary" id="upTim" style="padding:4px 12px;font-size:12px">5💰</button></div>
+  </div>
+
+  <button class="btn large" id="fightBtn">FIGHT!</button>
+</div>
+
+<!-- Fight Card Screen -->
+<div class="screen" id="fightCardScreen">
+  <div class="menu-title" style="font-size:24px">YOUR OPPONENT</div>
+  <div class="menu-card" style="text-align:center;margin-top:20px">
+    <div class="fc-name" id="fcName">BRICK MCFIST</div>
+    <div class="fc-nick" id="fcNick">"The Demolisher"</div>
+    <div class="fc-row" id="fcStyle">Style: Boxing</div>
+    <div class="fc-row" id="fcRecord">Record: 8-3-0</div>
+    <div class="fc-row" id="fcDesc">Street brawler turned boxer</div>
+    <div class="fc-weak" id="fcWeak">Weakness: Low kicks</div>
+  </div>
+  <button class="btn large" id="startFightBtn">ENTER THE CAGE</button>
+</div>
+
+<!-- Win Screen -->
+<div class="screen" id="winScreen">
+  <div class="result-title win" id="winTitle">VICTORY!</div>
+  <div class="result-coins" id="winCoins">+10 coins</div>
+  <div class="result-streak" id="winStreak">Win streak: 1</div>
+  <button class="btn large" id="nextFightBtn">NEXT FIGHT</button>
+  <button class="btn secondary" id="winMenuBtn">MAIN MENU</button>
+</div>
+
+<!-- Lose Screen -->
+<div class="screen" id="loseScreen">
+  <div class="result-title lose">DEFEATED</div>
+  <div class="result-streak">Win streak reset</div>
+  <button class="btn large" id="rematchBtn">REMATCH</button>
+  <button class="btn secondary" id="loseMenuBtn">MAIN MENU</button>
+</div>
+
+</div><!-- /game -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// UFG MOBILE — Complete Fighting Game
+// Ultra-realistic humanoid fighters, physics, common-sense combat
+// ═══════════════════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W=0, H=0, DPR=1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Data ────────────────────────────────────────────────────────────────────
+const STYLES = [
+  {id:'boxing',name:'Boxing',desc:'Heavy hands, fast dodges',color:'#e74c3c',unlockCost:0,dodgeMult:1.4,counterMult:1.2,combos:[
+    {inputs:['P'],name:'Jab',damage:8},{inputs:['P','P'],name:'Double Jab',damage:18},
+    {inputs:['P','P','P'],name:'Triple Jab',damage:28},{inputs:['P','K'],name:'Cross-Uppercut',damage:22},
+    {inputs:['K'],name:'Body Hook',damage:14},{inputs:['K','K'],name:'Double Hook',damage:24},
+    {inputs:['P','P','K'],name:'Jab-Cross-Hook',damage:38,isMega:true}
+  ]},
+  {id:'kickboxing',name:'Kickboxing',desc:'Balanced kicks & punches',color:'#f39c12',unlockCost:20,dodgeMult:1.2,counterMult:1.3,combos:[
+    {inputs:['P'],name:'Jab',damage:7},{inputs:['K'],name:'Roundhouse',damage:16,isKick:true},
+    {inputs:['P','K'],name:'Jab-Roundhouse',damage:22,isKick:true},{inputs:['K','P'],name:'Kick-Punch',damage:20},
+    {inputs:['K','K'],name:'Double Kick',damage:30,isKick:true},
+    {inputs:['P','P','K'],name:'Triple Combo',damage:36,isMega:true},
+    {inputs:['K','K','P'],name:'Flying Kick Finish',damage:50,isKick:true,isMega:true,isHighRisk:true}
+  ]},
+  {id:'bjj',name:'BJJ',desc:'Massive counter damage',color:'#3498db',unlockCost:20,dodgeMult:1.0,counterMult:2.0,combos:[
+    {inputs:['P'],name:'Grab',damage:6},{inputs:['K'],name:'Leg Trip',damage:12,isKick:true},
+    {inputs:['P','P'],name:'Collar Tie',damage:18},{inputs:['K','P'],name:'Sweep',damage:22},
+    {inputs:['P','K'],name:'Takedown',damage:28,isMega:true},
+    {inputs:['P','P','K'],name:'Submission Hold',damage:42,isMega:true}
+  ]},
+  {id:'muaythai',name:'Muay Thai',desc:'8 limbs: elbows, knees',color:'#e67e22',unlockCost:25,dodgeMult:1.1,counterMult:1.6,combos:[
+    {inputs:['P'],name:'Teep',damage:9},{inputs:['K'],name:'Low Kick',damage:14,isKick:true},
+    {inputs:['P','K'],name:'Elbow Strike',damage:26},{inputs:['K','K'],name:'Double Knee',damage:30,isKick:true},
+    {inputs:['P','P','K'],name:'Knee Strike',damage:40,isMega:true,isKick:true},
+    {inputs:['K','K','P'],name:'Spinning Elbow',damage:48,isMega:true,isHighRisk:true}
+  ]},
+  {id:'taekwondo',name:'Taekwondo',desc:'Lightning kicks, high risk',color:'#2980b9',unlockCost:30,dodgeMult:1.3,counterMult:1.2,combos:[
+    {inputs:['P'],name:'Jab',damage:6},{inputs:['K'],name:'Front Kick',damage:14,isKick:true},
+    {inputs:['K','K'],name:'Double Kick',damage:26,isKick:true},
+    {inputs:['P','K'],name:'Jump Kick',damage:30,isKick:true,isHighRisk:true},
+    {inputs:['K','K','K'],name:'Triple Kick',damage:40,isKick:true,isMega:true},
+    {inputs:['P','P','K'],name:'Spinning Heel',damage:52,isKick:true,isMega:true,isHighRisk:true}
+  ]},
+  {id:'kungfu',name:'Kung Fu',desc:'Five-animal forms',color:'#c0392b',unlockCost:35,dodgeMult:1.35,counterMult:1.7,combos:[
+    {inputs:['P'],name:'Crane Strike',damage:8},{inputs:['K'],name:'Dragon Sweep',damage:13,isKick:true},
+    {inputs:['P','P'],name:'Praying Mantis',damage:19},{inputs:['K','P'],name:'Tiger Claw',damage:27,isMega:true},
+    {inputs:['P','K'],name:'Leopard Rush',damage:31,isMega:true},
+    {inputs:['P','P','K'],name:'Five Animal Form',damage:48,isMega:true}
+  ]},
+  {id:'mma',name:'MMA',desc:'Mixed & unpredictable',color:'#7f8c8d',unlockCost:50,dodgeMult:1.25,counterMult:1.5,combos:[
+    {inputs:['P'],name:'Jab',damage:8},{inputs:['K'],name:'Low Kick',damage:13,isKick:true},
+    {inputs:['P','P'],name:'1-2 Combo',damage:20},{inputs:['K','P'],name:'Clinch Knee',damage:26,isKick:true},
+    {inputs:['P','K'],name:'Takedown',damage:30,isMega:true},
+    {inputs:['K','K','P'],name:'Flying Knee',damage:46,isKick:true,isMega:true,isHighRisk:true},
+    {inputs:['P','P','K'],name:'Ground & Pound',damage:55,isMega:true}
+  ]},
+];
+
+const ENEMIES = [
+  {id:'brick',name:'Brick McFist',nick:'The Demolisher',styleId:'boxing',weakness:'Low kicks — he never guards his legs',record:'8-3-0',desc:'Street brawler turned boxer',color:'#e74c3c'},
+  {id:'yuki',name:'Yuki Chen',nick:'The Typhoon',styleId:'kickboxing',weakness:'Clinch him up — hates being grabbed',record:'14-4-0',desc:'Olympic alternate. Devastating leg kicks',color:'#f39c12'},
+  {id:'tito',name:'Tito Gracias',nick:'Granite',styleId:'bjj',weakness:'Keep distance — he needs to grab you',record:'21-2-0',desc:'Submission specialist from Recife',color:'#1abc9c'},
+  {id:'akira',name:'Master Akira',nick:'The Phantom',styleId:'kungfu',weakness:'Relentless pressure — cant redirect chaos',record:'38-6-0',desc:'Former royal bodyguard. Reads attacks',color:'#9b59b6'},
+  {id:'somchai',name:'Somchai Moo',nick:'Iron Elbows',styleId:'muaythai',weakness:'Long jabs — struggles at distance',record:'34-3-0',desc:'Lumpinee champion. Brutal clinch fighter',color:'#e67e22'},
+  {id:'zhang',name:'Zhang Wei',nick:'Shaolin Thunder',styleId:'kungfu',weakness:'Power shots — trained for finesse not force',record:'61-5-0',desc:'35 years temple training. Fast strikes',color:'#f1c40f'},
+  {id:'ivan',name:'Ivan Petrov',nick:'The Wall',styleId:'mma',weakness:'Move constantly — static fighters get taken down',record:'29-1-0',desc:'Olympic gold medalist. Unstoppable takedowns',color:'#3498db'},
+  {id:'diablo',name:'El Diablo',nick:'The End',styleId:'mma',weakness:'Classified — nobody who figured it out came back',record:'89-0-0',desc:'Undefeated. Two-weight world champion. Final boss',color:'#ff0033'},
+];
+
+function getStyle(id){return STYLES.find(s=>s.id===id)||STYLES[0]}
+function pickEnemy(wins){const idx=Math.min(Math.floor(wins/1),ENEMIES.length-1);const off=Math.floor(Math.random()*2);return ENEMIES[Math.min(idx+off,ENEMIES.length-1)]}
+
+// ─── Save/Load ───────────────────────────────────────────────────────────────
+const SAVE_KEY='ufg_web_save_v1';
+function loadSave(){try{return JSON.parse(localStorage.getItem(SAVE_KEY))||{}}catch(e){return{}}}
+function saveData(d){try{localStorage.setItem(SAVE_KEY,JSON.stringify(d))}catch(e){}}
+let save=Object.assign({wins:0,streak:0,coins:0,unlocked:['boxing'],style:'boxing',diff:'normal',str:1,agi:1,tim:1},loadSave());
+
+// ─── Game State ──────────────────────────────────────────────────────────────
+const state={
+  phase:'menu', // menu, fightcard, fighting, between, win, lose
+  player:null,enemy:null,currentEnemy:null,
+  round:1,roundsToWin:2,pWins:0,eWins:0,
+  qte:null,damageNumbers:[],
+  lastCombo:null,lastComboTime:0,
+  consecutiveHits:0,lastComboName:null,
+};
+
+function makeFighter(isPlayer){
+  return{hp:100,maxHp:100,x:isPlayer?-3:3,isAttacking:false,isKicking:false,attackType:null,
+    isHurt:false,isFallen:false,isWhiffed:false,comboBuffer:[],lastInput:0,cooldown:0,
+    facingRight:isPlayer,isPlayer,animState:'idle',animPhase:0,animStart:0};
+}
+
+// ─── Fighter Rendering (Canvas) ──────────────────────────────────────────────
+function hexRgb(h){const n=parseInt(h.replace('#',''),16);return[(n>>16)&255,(n>>8)&255,n&255]}
+function lighten(h,a){const[r,g,b]=hexRgb(h);return`rgb(${Math.min(255,r+a)},${Math.min(255,g+a)},${Math.min(255,b+a)})`}
+function darken(h,a){const[r,g,b]=hexRgb(h);return`rgb(${Math.max(0,r-a)},${Math.max(0,g-a)},${Math.max(0,b-a)})`}
+function rgba(h,a){const[r,g,b]=hexRgb(h);return`rgba(${r},${g},${b},${a})`}
+
+const FLOOR_Y_RATIO=0.62;
+
+function arenaToScreenX(x){return((x+5)/10)*W}
+
+// Animated body part offsets
+function getAnimOffsets(f,comboName,now){
+  const t=f.animState;
+  const elapsed=now-f.animStart;
+  const cn=(comboName||'').toLowerCase();
+  const o={headX:0,headY:0,headRot:0,torsoRot:0,torsoY:0,crouchY:0,
+    rBicep:-18,rFore:12,rArmX:0,rArmY:0,
+    lBicep:22,lFore:-18,lArmX:0,lArmY:0,
+    lThigh:-10,rThigh:10,lShin:6,rShin:-6,lLegY:0,rLegY:0,
+    rootX:0,rootY:0,scale:1,fallRot:0,shakeX:0,shakeY:0};
+
+  // Idle breathing
+  if(t==='idle'){o.torsoY=Math.sin(now/850)*2;o.headY=Math.sin(now/850)*1}
+  // Walk bob
+  if(t==='walk'){o.rootY=-Math.abs(Math.sin(now/170))*4}
+
+  if(f.isFallen){
+    const p=Math.min(elapsed/600,1);
+    o.fallRot=-90*p;o.rootY=42*p;o.lBicep=-140*p;o.rBicep=140*p;o.lThigh=55*p;o.rThigh=-45*p;
+    return o;
+  }
+  if(f.isHurt){
+    const p=Math.min(elapsed/300,1);
+    const dir=f.isPlayer?-1:1;
+    o.shakeX=dir*18*(1-p);o.shakeY=-11*(1-p);
+    o.headRot=dir*-28*(1-p);o.torsoRot=dir*-20*(1-p);
+    o.scale=0.8+0.2*p;o.lBicep=dir*-95*(1-p);o.rBicep=dir*95*(1-p);
+    return o;
+  }
+  if(f.isWhiffed){
+    const p=Math.min(elapsed/500,1);
+    const dir=f.isPlayer?1:-1;
+    if(p<0.4){o.rootX=dir*28*(p/0.4);o.torsoRot=dir*34*(p/0.4);o.crouchY=12*(p/0.4)}
+    else{o.rootX=dir*28*(1-(p-0.4)/0.6);o.torsoRot=dir*34*(1-(p-0.4)/0.6);o.crouchY=12*(1-(p-0.4)/0.6)}
+    return o;
+  }
+
+  if(!f.isAttacking)return o;
+
+  const dir=f.isPlayer?1:-1;
+  const fwd=f.isPlayer?1:-1;
+
+  if(f.isKicking){
+    const kp=Math.min(elapsed/500,1);
+
+    // Flying/jump kick — wind-up then launch
+    if(cn.includes('jump')||cn.includes('flying')){
+      if(kp<0.2){o.crouchY=14*(kp/0.2);o.lThigh=-28*(kp/0.2);o.rThigh=28*(kp/0.2);o.rBicep=dir*38*(kp/0.2);o.lBicep=dir*-38*(kp/0.2)}
+      else if(kp<0.5){o.rootY=-42*((kp-0.2)/0.3);o.rThigh=dir*-108*((kp-0.2)/0.3);o.rShin=dir*32*((kp-0.2)/0.3);o.lThigh=dir*40*((kp-0.2)/0.3);o.rBicep=dir*60*((kp-0.2)/0.3);o.lBicep=dir*-60*((kp-0.2)/0.3);o.torsoRot=dir*-15*((kp-0.2)/0.3)}
+      else if(kp<0.65){o.rootY=-38;o.rThigh=dir*-108;o.rShin=dir*32}
+      else{o.rootY=-38+42*((kp-0.65)/0.35);o.scale=0.68+0.32*((kp-0.65)/0.35);o.rThigh=dir*-108+118*((kp-0.65)/0.35);o.rShin=dir*32-38*((kp-0.65)/0.35);o.lThigh=dir*40-50*((kp-0.65)/0.35)}
+    }
+    // Spinning heel — long pivot
+    else if(cn.includes('spinning')){
+      if(kp<0.25){o.torsoRot=dir*-55*(kp/0.25);o.rootY=-8*(kp/0.25);o.lBicep=dir*-65*(kp/0.25);o.rBicep=dir*50*(kp/0.25)}
+      else if(kp<0.6){o.torsoRot=dir*-55+95*((kp-0.25)/0.35);o.rThigh=dir*-112*((kp-0.25)/0.35);o.rShin=dir*28*((kp-0.25)/0.35);o.lBicep=dir*-65-10*((kp-0.25)/0.35);o.rBicep=dir*50-5*((kp-0.25)/0.35)}
+      else{o.torsoRot=dir*40-40*((kp-0.6)/0.4);o.rThigh=dir*-112+122*((kp-0.6)/0.4);o.rShin=dir*28-34*((kp-0.6)/0.4)}
+    }
+    // Triple kick — 3 phases
+    else if(cn.includes('triple')){
+      if(kp<0.33){o.rThigh=dir*-82*(kp/0.33);o.rShin=dir*22*(kp/0.33);o.torsoRot=dir*-14*(kp/0.33)}
+      else if(kp<0.5){o.rThigh=dir*-82+92*((kp-0.33)/0.17);o.rShin=dir*22-28*((kp-0.33)/0.17);o.torsoRot=dir*-14+14*((kp-0.33)/0.17)}
+      else if(kp<0.75){o.lThigh=dir*82*((kp-0.5)/0.25);o.lShin=dir*-22*((kp-0.5)/0.25);o.torsoRot=dir*14*((kp-0.5)/0.25)}
+      else{o.lThigh=dir*82-92*((kp-0.75)/0.25);o.lShin=dir*-22+28*((kp-0.75)/0.25);o.torsoRot=dir*14-14*((kp-0.75)/0.25);o.rThigh=dir*-100*((kp-0.75)/0.25);o.rShin=dir*26*((kp-0.75)/0.25)}
+    }
+    // Double kick/knee
+    else if(cn.includes('double')){
+      if(kp<0.4){o.rThigh=dir*-82*(kp/0.4);o.rShin=dir*20*(kp/0.4);o.torsoRot=dir*-12*(kp/0.4)}
+      else if(kp<0.55){o.rThigh=dir*-82+92*((kp-0.4)/0.15);o.rShin=dir*20-26*((kp-0.4)/0.15);o.torsoRot=dir*-12+12*((kp-0.4)/0.15)}
+      else{o.lThigh=dir*82*((kp-0.55)/0.45);o.lShin=dir*-20*((kp-0.55)/0.45);o.torsoRot=dir*12*((kp-0.55)/0.45)}
+    }
+    // Roundhouse
+    else if(cn.includes('roundhouse')){
+      if(kp<0.5){o.torsoRot=dir*-22*(kp/0.5);o.lThigh=dir*95*(kp/0.5);o.lShin=dir*-28*(kp/0.5);o.rBicep=dir*48*(kp/0.5)}
+      else{o.torsoRot=dir*-22+22*((kp-0.5)/0.5);o.lThigh=dir*95-105*((kp-0.5)/0.5);o.lShin=dir*-28+34*((kp-0.5)/0.5);o.rBicep=dir*48-66*((kp-0.5)/0.5)}
+    }
+    // Knee strike
+    else if(cn.includes('knee')){
+      if(kp<0.4){o.rootY=-12*(kp/0.4);o.rThigh=dir*-90*(kp/0.4);o.rShin=dir*18*(kp/0.4);o.lBicep=dir*-55*(kp/0.4);o.rBicep=dir*55*(kp/0.4)}
+      else{o.rootY=-12+12*((kp-0.4)/0.6);o.rThigh=dir*-90+100*((kp-0.4)/0.6);o.rShin=dir*18-24*((kp-0.4)/0.6);o.lBicep=dir*-55+77*((kp-0.4)/0.6);o.rBicep=dir*55-73*((kp-0.4)/0.6)}
+    }
+    // Low kick / sweep
+    else if(cn.includes('low kick')||cn.includes('sweep')||cn.includes('dragon')||cn.includes('leg trip')){
+      if(kp<0.5){o.lThigh=dir*52*(kp/0.5);o.lShin=dir*-14*(kp/0.5);o.torsoRot=dir*-12*(kp/0.5);o.crouchY=8*(kp/0.5)}
+      else{o.lThigh=dir*52-62*((kp-0.5)/0.5);o.lShin=dir*-14+20*((kp-0.5)/0.5);o.torsoRot=dir*-12+12*((kp-0.5)/0.5);o.crouchY=8-8*((kp-0.5)/0.5)}
+    }
+    // Front kick / Redirect kick / default kick
+    else if(cn.includes('front kick')||cn.includes('redirect')||true){
+      if(kp<0.5){o.rThigh=dir*-80*(kp/0.5);o.rShin=dir*24*(kp/0.5);o.torsoRot=dir*-15*(kp/0.5);o.rBicep=dir*44*(kp/0.5)}
+      else{o.rThigh=dir*-80+90*((kp-0.5)/0.5);o.rShin=dir*24-30*((kp-0.5)/0.5);o.torsoRot=dir*-15+15*((kp-0.5)/0.5);o.rBicep=dir*44-62*((kp-0.5)/0.5)}
+    }
+  }
+  // Hook
+  else if(f.attackType==='hook'){
+    const p=Math.min(elapsed/350,1);
+    if(p<0.3){o.torsoRot=dir*-24*(p/0.3);o.lBicep=dir*-75*(p/0.3);o.lFore=dir*22*(p/0.3);o.lArmX=dir*-22*(p/0.3);o.lArmY=-14*(p/0.3);o.torsoY=-6*(p/0.3);o.headRot=dir*-10*(p/0.3)}
+    else{o.torsoRot=dir*-24+44*((p-0.3)/0.7);o.lBicep=dir*-75+97*((p-0.3)/0.7);o.lFore=dir*22-40*((p-0.3)/0.7);o.lArmX=dir*-22+22*((p-0.3)/0.7);o.lArmY=-14+14*((p-0.3)/0.7);o.torsoY=-6+6*((p-0.3)/0.7);o.headRot=dir*-10+10*((p-0.3)/0.7)}
+  }
+  // Punches
+  else{
+    const p=Math.min(elapsed/350,1);
+
+    if(cn.includes('uppercut')||cn.includes('cross-uppercut')){
+      if(p<0.25){o.crouchY=10*(p/0.25);o.rArmY=10*(p/0.25)}
+      else if(p<0.6){o.crouchY=10-24*((p-0.25)/0.35);o.rArmY=10-38*((p-0.25)/0.35);o.rBicep=dir*-65*((p-0.25)/0.35);o.rFore=dir*-35*((p-0.25)/0.35);o.torsoRot=dir*-14*((p-0.25)/0.35);o.headRot=dir*-8*((p-0.25)/0.35)}
+      else{o.crouchY=-14+14*((p-0.6)/0.4);o.rArmY=-28+28*((p-0.6)/0.4);o.rBicep=dir*-65+47*((p-0.6)/0.4);o.rFore=dir*-35+47*((p-0.6)/0.4);o.torsoRot=dir*-14+14*((p-0.6)/0.4);o.headRot=dir*-8+8*((p-0.6)/0.4)}
+    }
+    else if(cn.includes('elbow')){
+      const isSpin=cn.includes('spinning');
+      const windup=isSpin?0.35:0.25;
+      if(p<windup){o.torsoRot=isSpin?dir*-55*(p/windup):dir*-28*(p/windup);o.lBicep=dir*-100*(p/windup);o.lArmX=dir*-20*(p/windup);o.torsoY=-8*(p/windup);o.headRot=dir*-12*(p/windup)}
+      else{const rp=(p-windup)/(1-windup);o.torsoRot=(isSpin?dir*-55:dir*-28)+(isSpin?dir*95:dir*50)*rp;o.lBicep=dir*-100+122*rp;o.lArmX=dir*-20+20*rp;o.torsoY=-8+8*rp;o.headRot=dir*-12+12*rp}
+    }
+    else if(cn.includes('grab')||cn.includes('takedown')||cn.includes('throw')||cn.includes('hold')||cn.includes('submission')||cn.includes('sweep')||cn.includes('grip')||cn.includes('collar')||cn.includes('harmony')||cn.includes('tiger')||cn.includes('leopard')||cn.includes('crane')||cn.includes('mantis')||cn.includes('clinch')){
+      if(p<0.35){o.rootX=fwd*24*(p/0.35);o.crouchY=10*(p/0.35);o.torsoRot=dir*-18*(p/0.35);o.rBicep=dir*-42*(p/0.35);o.lBicep=dir*-42*(p/0.35)}
+      else{const rp=(p-0.35)/0.65;o.rootX=fwd*24*(1-rp);o.torsoRot=dir*-18+56*rp;o.scale=0.82+0.18*Math.min(rp*2,1);o.rBicep=dir*-42+24*rp;o.lBicep=dir*-42+64*rp}
+    }
+    // Triple/mega combos
+    else if(cn.includes('triple')||cn.includes('jab-cross')||cn.includes('five animal')||cn.includes('ground')||cn.includes('1-2')||cn.includes('double jab')){
+      if(p<0.3){o.rArmX=dir*-30*(p/0.3);o.rBicep=dir*-38*(p/0.3);o.rFore=dir*18*(p/0.3)}
+      else if(p<0.45){o.rArmX=dir*-30+30*((p-0.3)/0.15);o.rBicep=dir*-38+20*((p-0.3)/0.15);o.rFore=dir*18-6*((p-0.3)/0.15);o.lArmX=dir*-28*((p-0.3)/0.15);o.torsoRot=dir*-16*((p-0.3)/0.15);o.lBicep=dir*-48*((p-0.3)/0.15)}
+      else if(p<0.65){o.lArmX=dir*-28+28*((p-0.45)/0.2);o.torsoRot=dir*-16+16*((p-0.45)/0.2);o.lBicep=dir*-48+70*((p-0.45)/0.2);o.lArmX=dir*-38*((p-0.45)/0.2);o.lArmY=-15*((p-0.45)/0.2);o.torsoRot=dir*24*((p-0.45)/0.2);o.lBicep=dir*-80*((p-0.45)/0.2);o.lFore=dir*26*((p-0.45)/0.2)}
+      else{const rp=(p-0.65)/0.35;o.lArmX=dir*-38+38*rp;o.lArmY=-15+15*rp;o.torsoRot=dir*24-24*rp;o.lBicep=dir*-80+102*rp;o.lFore=dir*26-44*rp}
+    }
+    // Body Hook — dip down, dig to the body
+    else if(cn.includes('body hook')){
+      if(p<0.35){o.crouchY=16*(p/0.35);o.torsoRot=dir*-20*(p/0.35);o.lBicep=dir*-60*(p/0.35);o.lFore=dir*30*(p/0.35);o.lArmX=dir*-18*(p/0.35);o.lArmY=12*(p/0.35);o.headRot=dir*-8*(p/0.35)}
+      else{const rp=(p-0.35)/0.65;o.crouchY=16-16*rp;o.torsoRot=dir*-20+20*rp;o.lBicep=dir*-60+82*rp;o.lFore=dir*30-48*rp;o.lArmX=dir*-18+18*rp;o.lArmY=12-12*rp;o.headRot=dir*-8+8*rp}
+    }
+    // Kick-Punch — kick first then punch (two-phase)
+    else if(cn.includes('kick-punch')){
+      if(p<0.45){o.rThigh=dir*-70*(p/0.45);o.rShin=dir*20*(p/0.45);o.torsoRot=dir*-12*(p/0.45);o.rBicep=dir*30*(p/0.45)}
+      else if(p<0.55){o.rThigh=dir*-70+70*((p-0.45)/0.1);o.rShin=dir*20-20*((p-0.45)/0.1);o.torsoRot=dir*-12+12*((p-0.45)/0.1);o.rBicep=dir*30-30*((p-0.45)/0.1)}
+      else{const rp=(p-0.55)/0.45;o.rArmX=dir*-32*rp;o.rBicep=dir*-42*rp;o.rFore=dir*16*rp;o.torsoRot=dir*10*rp}
+    }
+    // Teep — push/palm strike (front push)
+    else if(cn.includes('teep')){
+      if(p<0.4){o.crouchY=6*(p/0.4);o.rArmX=dir*-8*(p/0.4);o.rBicep=dir*-15*(p/0.4);o.rFore=dir*-25*(p/0.4);o.torsoRot=dir*-6*(p/0.4)}
+      else{const rp=(p-0.4)/0.6;o.crouchY=6-6*rp;o.rArmX=dir*-8-22*rp;o.rBicep=dir*-15-30*rp;o.rFore=dir*-25+10*rp;o.torsoRot=dir*-6+6*rp;o.rootX=fwd*10*(rp<0.5?rp*2:(1-rp)*2)}
+    }
+    // Double Hook — two alternating hooks
+    else if(cn.includes('double hook')){
+      if(p<0.35){o.torsoRot=dir*-22*(p/0.35);o.rBicep=dir*-65*(p/0.35);o.rFore=dir*20*(p/0.35);o.rArmX=dir*-18*(p/0.35);o.torsoY=-5*(p/0.35)}
+      else if(p<0.5){o.torsoRot=dir*-22+44*((p-0.35)/0.15);o.rBicep=dir*-65+47*((p-0.35)/0.15);o.rFore=dir*20-6*((p-0.35)/0.15);o.rArmX=dir*-18+18*((p-0.35)/0.15);o.torsoY=-5+5*((p-0.35)/0.15)}
+      else if(p<0.8){o.torsoRot=dir*22*((p-0.5)/0.3);o.lBicep=dir*-70*((p-0.5)/0.3);o.lFore=dir*24*((p-0.5)/0.3);o.lArmX=dir*-20*((p-0.5)/0.3);o.lArmY=-12*((p-0.5)/0.3);o.torsoY=-6*((p-0.5)/0.3)}
+      else{const rp=(p-0.8)/0.2;o.torsoRot=dir*22-22*rp;o.lBicep=dir*-70+92*rp;o.lFore=dir*24-42*rp;o.lArmX=dir*-20+20*rp;o.lArmY=-12+12*rp;o.torsoY=-6+6*rp}
+    }
+    // Praying Mantis — rapid insect-like strikes
+    else if(cn.includes('praying mantis')){
+      if(p<0.3){o.rArmX=dir*-20*(p/0.3);o.rBicep=dir*-30*(p/0.3);o.rFore=dir*40*(p/0.3);o.torsoRot=dir*-8*(p/0.3)}
+      else if(p<0.5){o.rArmX=dir*-20+20*((p-0.3)/0.2);o.rBicep=dir*-30+12*((p-0.3)/0.2);o.rFore=dir*40-50*((p-0.3)/0.2);o.lArmX=dir*-22*((p-0.3)/0.2);o.lBicep=dir*-35*((p-0.3)/0.2);o.lFore=dir*35*((p-0.3)/0.2)}
+      else{const rp=(p-0.5)/0.5;o.lArmX=dir*-22+22*rp;o.lBicep=dir*-35+57*rp;o.lFore=dir*35-53*rp;o.torsoRot=dir*-8+8*rp}
+    }
+    // Default jab
+    else{
+      if(p<0.35){o.rArmX=dir*-34*(p/0.35);o.rBicep=dir*-40*(p/0.35);o.rFore=dir*18*(p/0.35);o.torsoY=-5*(p/0.35);o.torsoRot=dir*-9*(p/0.35)}
+      else{o.rArmX=dir*-34+34*((p-0.35)/0.65);o.rBicep=dir*-40+22*((p-0.35)/0.65);o.rFore=dir*18-6*((p-0.35)/0.65);o.torsoY=-5+5*((p-0.35)/0.65);o.torsoRot=dir*-9+9*((p-0.35)/0.65)}
+    }
+  }
+  return o;
+}
+
+function drawFighter(f,screenX,screenY,scale,color,mirror,comboName,now){
+  const s=scale;
+  const o=getAnimOffsets(f,comboName,now);
+  const skin=f.isHurt?'#ffe0cc':'#d4956a';
+  const shadowSkin=darken('#d4956a',35);
+  const outfit=f.isHurt?lighten(color,60):color;
+  const outfitDark=darken(color,45);
+  const shortsC=f.isHurt?'#555':'#12122a';
+  const stripeC=color;
+  const gloveC=f.isHurt?'#ff9999':darken(color,10);
+  const gloveDark=darken(color,55);
+
+  // Dimensions
+  const HEAD_W=28*s,HEAD_H=33*s,NECK_W=12*s,NECK_H=10*s;
+  const TOR_W=42*s,TOR_H=48*s,BIC_W=16*s,BIC_H=20*s;
+  const FOR_W=12*s,FOR_H=18*s,HIP_W=38*s,HIP_H=11*s;
+  const THI_W=18*s,THI_H=26*s,SHN_W=13*s,SHN_H=22*s,FOOT_W=20*s,FOOT_H=9*s;
+  const TOTAL_H=HEAD_H+NECK_H+TOR_H+HIP_H+THI_H+SHN_H+FOOT_H+4*s;
+
+  ctx.save();
+  // Root transform
+  ctx.translate(screenX+o.shakeX+o.stumbleX+o.rootX, screenY-TOTAL_H+o.shakeY+o.rootY);
+  if(mirror)ctx.scale(-1,1);
+  ctx.scale(o.scale,o.scale);
+  ctx.rotate(o.fallRot*Math.PI/180);
+
+  // Torso wrapper
+  ctx.save();
+  ctx.translate(0,o.torsoY+o.crouchY);
+  ctx.rotate(o.torsoRot*Math.PI/180);
+
+  // ── HEAD ──
+  ctx.save();
+  ctx.translate(0,o.headY);
+  ctx.rotate(o.headRot*Math.PI/180);
+  drawHead(s,skin,shadowSkin,f.isHurt);
+  ctx.restore();
+
+  // ── NECK ──
+  ctx.fillStyle=skin;
+  ctx.strokeStyle=rgba(shadowSkin,0.3);
+  ctx.lineWidth=1;
+  roundRect(-NECK_W/2,-2,NECK_W,NECK_H,NECK_W/2);
+  ctx.fill();ctx.stroke();
+
+  // ── ARMS + TORSO ──
+  // LEFT ARM
+  ctx.save();
+  ctx.translate(o.lArmX,o.lArmY);
+  ctx.rotate(o.lBicep*Math.PI/180);
+  drawArm(s,outfit,outfitDark,skin,shadowSkin,gloveC,gloveDark,o.lFore);
+  ctx.restore();
+
+  // TORSO
+  drawTorso(s,outfit,outfitDark,color,TOR_W,TOR_H);
+
+  // RIGHT ARM
+  ctx.save();
+  ctx.translate(o.rArmX,o.rArmY);
+  ctx.rotate(o.rBicep*Math.PI/180);
+  drawArm(s,outfit,outfitDark,skin,shadowSkin,gloveC,gloveDark,o.rFore);
+  ctx.restore();
+
+  // ── BELT ──
+  ctx.fillStyle='#0a0a1e';
+  ctx.strokeStyle='#2a2a3e';ctx.lineWidth=1.5;
+  roundRect(-TOR_W*0.46,2,TOR_W*0.92,9*s,4*s);
+  ctx.fill();ctx.stroke();
+  // Belt stripe
+  ctx.fillStyle=rgba(color,0.72);
+  ctx.fillRect(-TOR_W*0.46+7*s,4,16*s,5*s);
+  // Buckle
+  ctx.fillStyle='#c0a830';ctx.strokeStyle='#a08820';
+  roundRect(-7*s,1.5,14*s,6*s,3*s);
+  ctx.fill();ctx.stroke();
+
+  // ── HIPS ──
+  ctx.fillStyle=shortsC;
+  ctx.fillRect(-HIP_W/2,1,HIP_W,HIP_H);
+
+  // ── LEGS ──
+  // Left leg
+  ctx.save();
+  ctx.translate(-THI_W/2-2,o.lLegY);
+  ctx.rotate(o.lThigh*Math.PI/180);
+  drawLeg(s,shortsC,stripeC,skin,shadowSkin,THI_W,THI_H,SHN_W,SHN_H,FOOT_W,FOOT_H,o.lShin,mirror);
+  ctx.restore();
+
+  // Right leg
+  ctx.save();
+  ctx.translate(THI_W/2+2,o.rLegY);
+  ctx.rotate(o.rThigh*Math.PI/180);
+  drawLeg(s,shortsC,stripeC,skin,shadowSkin,THI_W,THI_H,SHN_W,SHN_H,FOOT_W,FOOT_H,o.rShin,mirror);
+  ctx.restore();
+
+  ctx.restore(); // torso wrapper
+  ctx.restore(); // root
+}
+
+function drawHead(s,skin,shadowSkin,hurt){
+  const w=28*s,h=33*s;
+  // Skull
+  ctx.fillStyle=hurt?'#ffe8d6':skin;
+  ctx.strokeStyle=shadowSkin;ctx.lineWidth=2;
+  ctx.beginPath();ctx.ellipse(0,-h/2,w/2,h/2,0,0,Math.PI*2);
+  ctx.fill();ctx.stroke();
+
+  // Hair
+  ctx.fillStyle='#1c1c1c';
+  ctx.beginPath();ctx.ellipse(0,-h*0.7,w*0.48,h*0.22,0,Math.PI,0);
+  ctx.fill();
+
+  // Eyes
+  const eyeY=-h*0.38,eyeGap=w*0.22,eyeW=w*0.16,eyeH=h*0.13;
+  ctx.fillStyle=hurt?'#cc3300':'#2c1a0e';
+  ctx.beginPath();ctx.ellipse(-eyeGap-eyeW/2,eyeY,eyeW/2,eyeH/2,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(eyeGap+eyeW/2,eyeY,eyeW/2,eyeH/2,0,0,Math.PI*2);ctx.fill();
+
+  // Eye whites
+  ctx.fillStyle='#fff';ctx.globalAlpha=0.9;
+  ctx.beginPath();ctx.ellipse(-eyeGap+eyeW*0.1,eyeY-eyeH*0.1,eyeW*0.18,eyeH*0.25,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(eyeGap+eyeW*0.55,eyeY-eyeH*0.1,eyeW*0.18,eyeH*0.25,0,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;
+
+  // Nose
+  ctx.fillStyle=rgba(shadowSkin,0.45);
+  ctx.beginPath();ctx.ellipse(0,-h*0.25,w*0.06,h*0.065,0,0,Math.PI*2);ctx.fill();
+
+  // Mouth
+  ctx.fillStyle=hurt?rgba('#aa0000',0.65):rgba(shadowSkin,0.4);
+  roundRect(-w*0.25,-h*0.13,w*0.5,h*0.06,h*0.03);
+  ctx.fill();
+
+  // Jaw shadow
+  ctx.fillStyle=rgba(shadowSkin,0.18);
+  ctx.beginPath();ctx.ellipse(0,-h*0.1,w*0.42,h*0.18,0,0,Math.PI*2);ctx.fill();
+}
+
+function drawArm(s,outfit,outfitDark,skin,shadowSkin,gloveC,gloveDark,foreRot){
+  const BIC_W=16*s,BIC_H=20*s,FOR_W=12*s,FOR_H=18*s;
+  // Shoulder cap
+  ctx.fillStyle=outfit;ctx.strokeStyle=outfitDark;ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(0,0,(BIC_W+4)/2,0,Math.PI*2);ctx.fill();ctx.stroke();
+  // Bicep
+  roundRect(-BIC_W/2,2,BIC_W,BIC_H,BIC_W/2);ctx.fill();ctx.stroke();
+  // Elbow
+  ctx.fillStyle=skin;ctx.strokeStyle=rgba(shadowSkin,0.35);ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(0,2+BIC_H,BIC_W*0.41,0,Math.PI*2);ctx.fill();ctx.stroke();
+  // Forearm + glove
+  ctx.save();
+  ctx.translate(0,2+BIC_H);
+  ctx.rotate(foreRot*Math.PI/180);
+  ctx.fillStyle=skin;ctx.strokeStyle=rgba(shadowSkin,0.3);
+  roundRect(-FOR_W/2,-3,FOR_W,FOR_H,FOR_W/2);ctx.fill();ctx.stroke();
+  // Glove
+  const gw=18*s,gh=14*s;
+  ctx.fillStyle=gloveC;ctx.strokeStyle=gloveDark;ctx.lineWidth=1.5;
+  roundRect(-gw/2,FOR_H-3,gw,gh,gw*0.38);ctx.fill();ctx.stroke();
+  // Glove shine
+  ctx.fillStyle=rgba('#ffffff',0.22);
+  roundRect(-gw*0.32,FOR_H-3+gh*0.14,gw*0.64,gh*0.22,gw*0.12);ctx.fill();
+  // Wrist wrap
+  ctx.fillStyle=rgba(gloveDark,0.55);
+  ctx.fillRect(-gw/2,FOR_H-3+gh*0.22,gw,2);
+  ctx.restore();
+}
+
+function drawTorso(s,outfit,outfitDark,color,TOR_W,TOR_H){
+  // Upper chest
+  ctx.fillStyle=outfit;ctx.strokeStyle=outfitDark;ctx.lineWidth=2;
+  roundRect(-TOR_W/2,0,TOR_W,TOR_H*0.44,TOR_W*0.12);ctx.fill();ctx.stroke();
+  // Chest highlight
+  ctx.fillStyle=rgba('#ffffff',0.14);
+  roundRect(-TOR_W/2+8,7,TOR_W-16,TOR_H*0.18,TOR_W*0.1);ctx.fill();
+  // Chest divide
+  ctx.strokeStyle=rgba(outfitDark,0.38);ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,TOR_H*0.44);ctx.stroke();
+  // Abs
+  ctx.fillStyle=lighten(color,8);ctx.strokeStyle=outfitDark;ctx.lineWidth=1.5;
+  roundRect(-TOR_W*0.43,TOR_H*0.46,TOR_W*0.86,TOR_H*0.40,TOR_W*0.10);ctx.fill();ctx.stroke();
+  // Ab lines
+  ctx.strokeStyle=rgba(outfitDark,0.28);ctx.lineWidth=1.5;
+  for(let i=0;i<3;i++){ctx.beginPath();ctx.moveTo(-TOR_W*0.43+8,TOR_H*(0.46+0.28*i));ctx.lineTo(TOR_W*0.43-8,TOR_H*(0.46+0.28*i));ctx.stroke()}
+  ctx.beginPath();ctx.moveTo(0,TOR_H*0.46);ctx.lineTo(0,TOR_H*0.86);ctx.stroke();
+}
+
+function drawLeg(s,shortsC,stripeC,skin,shadowSkin,THI_W,THI_H,SHN_W,SHN_H,FOOT_W,FOOT_H,shinRot,mirror){
+  // Thigh/shorts
+  ctx.fillStyle=shortsC;ctx.strokeStyle='#222';ctx.lineWidth=1;
+  roundRect(-THI_W/2,0,THI_W,THI_H*0.68,THI_W/2);ctx.fill();ctx.stroke();
+  // Stripe
+  ctx.fillStyle=rgba(stripeC,0.65);
+  ctx.fillRect(-THI_W/2+3,0,3,THI_H*0.68);
+  // Knee
+  ctx.fillStyle=skin;ctx.strokeStyle=rgba(shadowSkin,0.3);ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(0,THI_H*0.68-4,THI_W*0.42,0,Math.PI*2);ctx.fill();ctx.stroke();
+  // Shin
+  ctx.save();
+  ctx.translate(0,THI_H*0.68-4);
+  ctx.rotate(shinRot*Math.PI/180);
+  ctx.fillStyle=skin;ctx.strokeStyle=rgba(shadowSkin,0.25);
+  roundRect(-SHN_W/2,-3,SHN_W,SHN_H,SHN_W/2);ctx.fill();ctx.stroke();
+  // Foot
+  ctx.fillStyle='#111';ctx.strokeStyle='#2a2a2a';ctx.lineWidth=1;
+  const fx=mirror?-FOOT_W*0.22:FOOT_W*0.22;
+  roundRect(fx-FOOT_W/2,SHN_H-3,FOOT_W,FOOT_H,FOOT_H*0.45);ctx.fill();ctx.stroke();
+  // Sole
+  ctx.fillStyle='#555';
+  ctx.fillRect(fx-FOOT_W/2,SHN_H-3+FOOT_H-3,FOOT_W,3);
+  ctx.restore();
+}
+
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// ─── Arena Background ────────────────────────────────────────────────────────
+function drawArena(){
+  // Floor gradient
+  const fy=H*FLOOR_Y_RATIO;
+  const g=ctx.createLinearGradient(0,fy-50,0,H);
+  g.addColorStop(0,'#1a1208');g.addColorStop(0.3,'#0f0a04');g.addColorStop(1,'#050302');
+  ctx.fillStyle=g;ctx.fillRect(0,fy-50,W,H-fy+50);
+  // Cage wall
+  const g2=ctx.createLinearGradient(0,0,0,fy);
+  g2.addColorStop(0,'#0a0806');g2.addColorStop(1,'#1a1208');
+  ctx.fillStyle=g2;ctx.fillRect(0,0,W,fy);
+  // Chain-link pattern
+  ctx.strokeStyle='rgba(40,40,40,0.15)';ctx.lineWidth=1;
+  for(let x=0;x<W;x+=20){
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+10,fy);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x+10,0);ctx.lineTo(x,fy);ctx.stroke();
+  }
+  // Spotlight
+  const rg=ctx.createRadialGradient(W/2,fy*0.3,0,W/2,fy*0.3,W*0.6);
+  rg.addColorStop(0,'rgba(255,200,100,0.08)');rg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=rg;ctx.fillRect(0,0,W,fy);
+  // Floor line
+  ctx.strokeStyle='rgba(255,107,0,0.15)';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(0,fy);ctx.lineTo(W,fy);ctx.stroke();
+  // Crowd silhouettes
+  ctx.fillStyle='rgba(10,8,6,0.6)';
+  for(let i=0;i<W/30;i++){
+    const cx=i*30+15;const ch=8+Math.sin(i*1.7)*4;
+    ctx.beginPath();ctx.arc(cx,fy-12-ch,ch,0,Math.PI);ctx.fill();
+  }
+}
+
+// ─── Combat Logic ────────────────────────────────────────────────────────────
+function isGrappling(name){
+  const l=name.toLowerCase();
+  return l.includes('grab')||l.includes('takedown')||l.includes('throw')||l.includes('hold')||l.includes('submission')||l.includes('sweep')||l.includes('grip')||l.includes('collar')||l.includes('harmony')||l.includes('clinch')||l.includes('tiger')||l.includes('leopard')||l.includes('crane')||l.includes('mantis');
+}
+
+function resolveCombo(buffer,styleId,str){
+  const style=getStyle(styleId);
+  let best=style.combos.find(c=>c.inputs.length===buffer.length&&c.inputs.every((inp,i)=>inp===buffer[i]));
+  if(!best)best=style.combos.filter(c=>c.inputs.length<=buffer.length&&c.inputs.every((inp,i)=>inp===buffer[i])).sort((a,b)=>b.inputs.length-a.inputs.length)[0];
+  if(!best)return null;
+  const bonus=1+(str-1)*0.15;
+  return{...best,damage:Math.round(best.damage*bonus)};
+}
+
+function playerAttack(input){
+  if(state.phase!=='fighting')return;
+  const p=state.player;
+  if(p.isFallen||p.isWhiffed||p.cooldown>Date.now())return;
+
+  const now=Date.now();
+  let buffer=p.comboBuffer;
+  if(now-p.lastInput>600)buffer=[];
+  buffer=[...buffer,input];
+
+  const combo=resolveCombo(buffer,save.style,save.str);
+  const style=getStyle(save.style);
+  const maxLen=Math.max(...style.combos.map(c=>c.inputs.length));
+  const shouldFire=buffer.length>=maxLen||(combo&&combo.inputs.length===buffer.length);
+
+  if(shouldFire&&combo){
+    const dist=Math.abs(p.x-state.enemy.x);
+    const inRange=dist<3.5;
+    const cooldown=Math.max(200,650-save.agi*45);
+    const grappling=isGrappling(combo.name);
+
+    // High-risk whiff (common sense: flashy moves don't always work)
+    if(inRange&&combo.isHighRisk){
+      const whiffChance=Math.max(0.05,0.25-save.tim*0.015+(dist>3.0?0.1:0));
+      if(Math.random()<whiffChance){
+        p.comboBuffer=[];p.lastInput=now;p.cooldown=now+cooldown*2.5;
+        p.isAttacking=true;p.isKicking=!!combo.isKick;p.isWhiffed=true;p.animState='whiff';p.animStart=now;
+        state.lastCombo=combo.name;state.lastComboTime=now;state.consecutiveHits=0;
+        flashCombo(combo.name+' — WHIFFED!');
+        setTimeout(()=>{p.isAttacking=false;p.isKicking=false;p.isWhiffed=false;p.animState='idle'},900);
+        return;
+      }
+    }
+
+    // Out of range
+    if(!inRange){
+      if(combo.isHighRisk){
+        p.comboBuffer=[];p.lastInput=now;p.cooldown=now+cooldown*2;
+        p.isAttacking=true;p.isKicking=true;p.isWhiffed=true;p.animState='whiff';p.animStart=now;
+        state.lastCombo=combo.name;state.lastComboTime=now;state.consecutiveHits=0;
+        flashCombo(combo.name+' — WHIFFED!');
+        setTimeout(()=>{p.isAttacking=false;p.isKicking=false;p.isWhiffed=false;p.animState='idle'},800);
+        return;
+      }
+      p.comboBuffer=[];p.lastInput=now;p.cooldown=now+cooldown;
+      p.isAttacking=true;p.isKicking=!!combo.isKick;p.animState='attack';p.animStart=now;
+      state.lastCombo=combo.name;state.lastComboTime=now;state.consecutiveHits=0;
+      setTimeout(()=>{p.isAttacking=false;p.isKicking=false;p.animState='idle'},300);
+      return;
+    }
+
+    // Grappling range check
+    if(grappling&&dist>2.5){
+      p.comboBuffer=[];p.lastInput=now;p.cooldown=now+cooldown*1.5;
+      p.isAttacking=true;p.animState='attack';p.animStart=now;
+      state.lastCombo=combo.name;state.lastComboTime=now;state.consecutiveHits=0;
+      setTimeout(()=>{p.isAttacking=false;p.animState='idle'},350);
+      return;
+    }
+
+    // HIT!
+    const isCrit=Math.random()<0.12+save.tim*0.05;
+    const streakMult=1+save.streak*0.1;
+    const distMod=grappling?(dist<2.0?1.0:Math.max(0.3,1.0-(dist-2.0)*0.2)):
+      combo.isKick?(dist<1.0?0.75:dist<3.0?1.0:Math.max(0.5,1.0-(dist-3.0)*0.15)):
+      (dist<2.5?1.0:Math.max(0.4,1.0-(dist-2.5)*0.2));
+    const momentum=state.lastComboName===combo.name?Math.max(0.6,1.0-state.consecutiveHits*0.12):Math.min(1.25,1.0+state.consecutiveHits*0.04);
+    const finalDmg=Math.round(combo.damage*(isCrit?1.5:1)*streakMult*distMod*momentum);
+
+    showDamage(finalDmg,false,isCrit,state.enemy.x);
+    state.consecutiveHits++;
+    state.lastComboName=combo.name;
+    const recovery=combo.isMega?cooldown*1.4:cooldown;
+
+    p.comboBuffer=[];p.lastInput=now;p.cooldown=now+recovery;
+    p.isAttacking=true;p.isKicking=!!combo.isKick;p.attackType=combo.isKick?'kick':(buffer.length>=2&&buffer.every(i=>i==='P')?'hook':'punch');
+    p.animState='attack';p.animStart=now;
+    state.enemy.hp=Math.max(0,state.enemy.hp-finalDmg);
+    state.enemy.isHurt=state.enemy.hp>0;state.enemy.isFallen=state.enemy.hp<=0;
+    state.enemy.animState=state.enemy.hp<=0?'fall':'hurt';state.enemy.animStart=now;
+    state.lastCombo=combo.name;state.lastComboTime=now;
+    flashCombo(combo.name+(isCrit?' — CRIT!':''));
+
+    setTimeout(()=>{p.isAttacking=false;p.isKicking=false;p.attackType=null;p.animState='idle'},400);
+    updateHUD();
+    checkRoundEnd();
+  }else{
+    p.comboBuffer=buffer;p.lastInput=now;
+  }
+}
+
+function movePlayer(dir){
+  if(state.phase!=='fighting')return;
+  const p=state.player;
+  if(p.isFallen||p.isWhiffed)return;
+  const speed=0.14+save.agi*0.03;
+  p.x=Math.max(-4.5,Math.min(4.5,p.x+dir*speed));
+  p.facingRight=dir>0;p.animState='walk';p.animStart=Date.now();
+  setTimeout(()=>{if(p.animState==='walk')p.animState='idle'},150);
+}
+
+// ─── AI ──────────────────────────────────────────────────────────────────────
+let aiTimer=null;
+function startAI(){
+  stopAI();
+  const tick=()=>{
+    if(state.phase!=='fighting'){stopAI();return}
+    const s=state;
+    const now=Date.now();
+    const diff=save.diff;
+    const aiSpeed=diff==='easy'?3000:diff==='normal'?2000:1300;
+    const aiMove=diff==='easy'?0.06:diff==='normal'?0.1:0.16;
+
+    // AI punishes whiff
+    if(s.player.isWhiffed&&!s.enemy.isFallen&&!s.qte){
+      const dmg=18+Math.floor(Math.random()*14);
+      showDamage(dmg,true,true,s.player.x);
+      s.player.hp=Math.max(0,s.player.hp-dmg);
+      s.player.isHurt=true;s.player.isWhiffed=false;s.player.animState='hurt';s.player.animStart=now;
+      state.consecutiveHits=0;
+      updateHUD();checkRoundEnd();
+      return;
+    }
+
+    // AI attacks/moves
+    if(!s.enemy.isFallen&&s.enemy.cooldown<now&&!s.qte){
+      const dist=Math.abs(s.player.x-s.enemy.x);
+      if(dist<3.5){
+        // Hard AI sometimes closes in first
+        if(diff==='hard'&&dist>2.5&&Math.random()<0.4){
+          const dir=s.player.x>s.enemy.x?1:-1;
+          s.enemy.x=Math.max(-4.5,Math.min(4.5,s.enemy.x+dir*aiMove*2));
+          s.enemy.facingRight=dir<0;s.enemy.animState='walk';s.enemy.animStart=now;
+        }else{
+          const qteTypes=['DODGE','DUCK','PARRY','COUNTER'];
+          const qteType=qteTypes[Math.floor(Math.random()*qteTypes.length)];
+          const windowMs=diff==='easy'?2200:diff==='normal'?1500:900;
+          const distMod=dist<2.0?1.15:1.0;
+          const dmg=Math.round((14+Math.floor(Math.random()*14))*distMod);
+          s.qte={type:qteType,deadline:now+windowMs,damage:dmg};
+          s.enemy.cooldown=now+aiSpeed;s.enemy.animState='attack';s.enemy.animStart=now;
+          showQTE(qteType,windowMs);
+        }
+      }else{
+        const dir=s.player.x>s.enemy.x?1:-1;
+        s.enemy.x=Math.max(-4.5,Math.min(4.5,s.enemy.x+dir*aiMove));
+        s.enemy.facingRight=dir<0;s.enemy.animState='walk';s.enemy.animStart=now;
+      }
+    }
+
+    // Clear hurt
+    if(s.player.isHurt&&!s.player.isFallen){s.player.isHurt=false;s.player.animState='idle'}
+    if(s.enemy.isHurt&&!s.enemy.isFallen){s.enemy.isHurt=false;s.enemy.animState='idle'}
+  };
+  aiTimer=setInterval(tick,33);
+}
+function stopAI(){if(aiTimer){clearInterval(aiTimer);aiTimer=null}}
+
+// ─── QTE ─────────────────────────────────────────────────────────────────────
+let qteTimerAnim=null;
+function showQTE(type,windowMs){
+  const qte=document.getElementById('qte');
+  const qteText=document.getElementById('qteText');
+  qteText.textContent=type+'!';
+  qte.classList.add('active');
+  // Timer bar
+  const fill=document.getElementById('qteTimerFill');
+  const start=Date.now();
+  if(qteTimerAnim)cancelAnimationFrame(qteTimerAnim);
+  function anim(){
+    const remaining=Math.max(0,(state.qte.deadline-Date.now())/windowMs);
+    fill.style.width=(remaining*100)+'%';
+    if(remaining>0&&state.qte){qteTimerAnim=requestAnimationFrame(anim)}
+  }
+  qteTimerAnim=requestAnimationFrame(anim);
+
+  // Auto-fail
+  setTimeout(()=>{
+    if(state.qte&&state.qte.active!==false){
+      const dmg=state.qte.damage;
+      showDamage(dmg,true,false,state.player.x);
+      state.player.hp=Math.max(0,state.player.hp-dmg);
+      state.player.isHurt=true;state.player.animState='hurt';state.player.animStart=Date.now();
+      state.consecutiveHits=0;
+      state.qte=null;
+      qte.classList.remove('active');
+      updateHUD();checkRoundEnd();
+    }
+  },windowMs);
+}
+
+function doQTE(type){
+  if(!state.qte)return;
+  const now=Date.now();
+  const windowMs=save.diff==='easy'?2200:save.diff==='normal'?1500:900;
+  const remaining=state.qte.deadline-now;
+  const timingScore=remaining/windowMs;
+  const isCorrect=type===state.qte.type;
+  const style=getStyle(save.style);
+
+  document.getElementById('qte').classList.remove('active');
+
+  if(isCorrect){
+    const baseCounter=12+save.str*3;
+    const timingBonus=timingScore>0.5?1.6:1.1;
+    const counterDmg=Math.round(baseCounter*timingBonus*style.counterMult);
+    showDamage(counterDmg,false,timingBonus>1.4,state.enemy.x);
+    state.enemy.hp=Math.max(0,state.enemy.hp-counterDmg);
+    state.enemy.isHurt=true;state.enemy.animState='hurt';state.enemy.animStart=now;
+    state.consecutiveHits++;
+  }else{
+    const dmg=Math.round(state.qte.damage*(1.3-save.tim*0.02));
+    showDamage(dmg,true,false,state.player.x);
+    state.player.hp=Math.max(0,state.player.hp-dmg);
+    state.player.isHurt=true;state.player.animState='hurt';state.player.animStart=now;
+    state.consecutiveHits=0;
+  }
+  state.qte=null;
+  updateHUD();checkRoundEnd();
+}
+
+// ─── Round/Match End ─────────────────────────────────────────────────────────
+function checkRoundEnd(){
+  if(state.player.hp<=0||state.enemy.hp<=0){
+    stopAI();
+    const playerWon=state.enemy.hp<=0;
+    state.pWins+=playerWon?1:0;
+    state.eWins+=playerWon?0:1;
+    const matchOver=state.pWins>=state.roundsToWin||state.eWins>=state.roundsToWin;
+
+    if(matchOver){
+      if(playerWon){
+        save.wins++;save.streak++;
+        const earned=Math.max(5,Math.round((5+state.round*2)*(1+save.streak*0.1)));
+        save.coins+=earned;
+        saveData(save);
+        document.getElementById('winCoins').textContent='+'+earned+' coins';
+        document.getElementById('winStreak').textContent='Win streak: '+save.streak;
+        setTimeout(()=>showScreen('winScreen'),1200);
+      }else{
+        save.streak=0;saveData(save);
+        setTimeout(()=>showScreen('loseScreen'),1200);
+      }
+    }else{
+      state.round++;
+      showBetween();
+    }
+  }
+}
+
+function showBetween(){
+  state.phase='between';
+  document.getElementById('betweenRound').textContent='ROUND '+state.round;
+  document.getElementById('between').classList.add('active');
+  setTimeout(()=>{
+    document.getElementById('between').classList.remove('active');
+    state.player=makeFighter(true);state.enemy=makeFighter(false);
+    state.phase='fighting';state.qte=null;
+    updateHUD();
+    startAI();
+  },1800);
+}
+
+// ─── UI ──────────────────────────────────────────────────────────────────────
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const el=document.getElementById(id);
+  if(el)el.classList.add('active');
+  const hud=document.getElementById('hud');
+  const controls=document.getElementById('controls');
+  const sw=document.getElementById('styleSwitch');
+  if(id==='menuScreen'){state.phase='menu';hud.classList.remove('active');controls.classList.remove('active');sw.classList.remove('active');updateMenu()}
+  else if(id==='fightCardScreen'){state.phase='fightcard';hud.classList.remove('active');controls.classList.remove('active');sw.classList.remove('active')}
+  else if(id==='winScreen'||id==='loseScreen'){hud.classList.remove('active');controls.classList.remove('active');sw.classList.remove('active')}
+}
+
+function updateMenu(){
+  document.getElementById('statWins').textContent=save.wins;
+  document.getElementById('statStreak').textContent=save.streak;
+  document.getElementById('statCoins').textContent=save.coins;
+  document.getElementById('statStr').textContent=save.str;
+  document.getElementById('statAgi').textContent=save.agi;
+  document.getElementById('statTim').textContent=save.tim;
+  document.getElementById('strBar').style.width=(save.str*10)+'%';
+  document.getElementById('agiBar').style.width=(save.agi*10)+'%';
+  document.getElementById('timBar').style.width=(save.tim*10)+'%';
+  document.getElementById('upStr').textContent=(save.str*5)+'💰';
+  document.getElementById('upAgi').textContent=(save.agi*5)+'💰';
+  document.getElementById('upTim').textContent=(save.tim*5)+'💰';
+
+  // Difficulty
+  document.querySelectorAll('.diff-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.diff===save.diff);
+  });
+
+  // Style grid
+  const grid=document.getElementById('styleGrid');
+  grid.innerHTML='';
+  STYLES.forEach(st=>{
+    const unlocked=save.unlocked.includes(st.id);
+    const selected=save.style===st.id;
+    const card=document.createElement('div');
+    card.className='style-card'+(selected?' selected':'')+(unlocked?'':' locked');
+    card.innerHTML=`
+      <div class="style-color" style="background:${st.color}"></div>
+      <div class="style-name">${st.name}</div>
+      <div class="style-desc">${st.desc}</div>
+      ${unlocked?'':`<div class="style-cost">${st.unlockCost}💰</div>`}
+    `;
+    card.onclick=()=>{
+      if(unlocked){save.style=st.id;saveData(save);updateMenu()}
+      else if(save.coins>=st.unlockCost){
+        save.coins-=st.unlockCost;save.unlocked.push(st.id);save.style=st.id;saveData(save);updateMenu()
+      }
+    };
+    grid.appendChild(card);
+  });
+}
+
+function updateHUD(){
+  const p=state.player,e=state.enemy;
+  if(!p||!e)return;
+  document.getElementById('pHpBar').style.width=Math.max(0,(p.hp/p.maxHp)*100)+'%';
+  document.getElementById('eHpBar').style.width=Math.max(0,(e.hp/e.maxHp)*100)+'%';
+  document.getElementById('eName').textContent=state.currentEnemy?state.currentEnemy.name.toUpperCase():'ENEMY';
+  document.getElementById('roundLabel').textContent='ROUND '+state.round;
+  // Round dots
+  const dots=document.getElementById('roundDots');
+  dots.innerHTML='';
+  for(let i=0;i<state.roundsToWin;i++){
+    const d=document.createElement('div');
+    d.className='round-dot'+(i<state.pWins?' win':'');
+    dots.appendChild(d);
+  }
+  for(let i=0;i<state.roundsToWin;i++){
+    const d=document.createElement('div');
+    d.className='round-dot'+(i<state.eWins?' lose':'');
+    dots.appendChild(d);
+  }
+}
+
+function flashCombo(text){
+  const el=document.getElementById('comboFlash');
+  el.textContent=text;
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),1200);
+}
+
+function showDamage(value,isPlayerCrit,x){
+  const el=document.createElement('div');
+  el.className='dmg-num '+(isPlayerCrit?'crit':'normal')+(isPlayerCrit===true?' player':' enemy');
+  // isPlayerCrit param: true = player took damage, false = enemy took damage
+  if(isPlayerCrit===true)el.classList.add('player');
+  else el.classList.add('enemy');
+  el.textContent=value;
+  const sx=arenaToScreenX(x);
+  el.style.left=sx+'px';
+  el.style.top=(H*0.35)+'px';
+  document.getElementById('game').appendChild(el);
+  setTimeout(()=>el.remove(),1000);
+}
+
+// ─── Render Loop ─────────────────────────────────────────────────────────────
+function render(){
+  ctx.clearRect(0,0,W,H);
+  drawArena();
+
+  if(state.phase==='fighting'||state.phase==='between'||state.phase==='win'||state.phase==='lose'){
+    const now=Date.now();
+    const fy=H*FLOOR_Y_RATIO;
+    const scale=Math.min(H/480,1.1);
+    const pStyle=getStyle(save.style);
+    const eColor=state.currentEnemy?state.currentEnemy.color:'#e74c3c';
+
+    // Draw fighters (enemy first if behind)
+    if(state.enemy)drawFighter(state.enemy,arenaToScreenX(state.enemy.x),fy,scale,eColor,true,state.lastCombo,now);
+    if(state.player)drawFighter(state.player,arenaToScreenX(state.player.x),fy,scale,pStyle.color,false,state.lastCombo,now);
+  }
+
+  requestAnimationFrame(render);
+}
+render();
+
+// ─── Game Flow ───────────────────────────────────────────────────────────────
+function beginMatch(){
+  state.consecutiveHits=0;state.lastComboName=null;
+  state.currentEnemy=pickEnemy(save.wins);
+  state.player=makeFighter(true);state.enemy=makeFighter(false);
+  state.round=1;state.pWins=0;state.eWins=0;state.qte=null;
+  document.getElementById('fcName').textContent=state.currentEnemy.name.toUpperCase();
+  document.getElementById('fcNick').textContent='"'+state.currentEnemy.nick+'"';
+  const estyle=getStyle(state.currentEnemy.styleId);
+  document.getElementById('fcStyle').textContent='Style: '+estyle.name;
+  document.getElementById('fcRecord').textContent='Record: '+state.currentEnemy.record;
+  document.getElementById('fcDesc').textContent=state.currentEnemy.desc;
+  document.getElementById('fcWeak').textContent='Weakness: '+state.currentEnemy.weakness;
+  showScreen('fightCardScreen');
+}
+
+function startFight(){
+  state.phase='fighting';
+  state.player=makeFighter(true);state.enemy=makeFighter(false);
+  state.qte=null;
+  showScreen(null);
+  document.getElementById('hud').classList.add('active');
+  document.getElementById('controls').classList.add('active');
+  // Style switcher
+  const sw=document.getElementById('styleSwitch');
+  sw.innerHTML='';
+  save.unlocked.forEach(id=>{
+    const st=getStyle(id);
+    const btn=document.createElement('div');
+    btn.className='sw-btn'+(save.style===id?' active':'');
+    btn.textContent=st.name;
+    btn.onclick=()=>{save.style=id;saveData(save);[...sw.children].forEach(c=>c.classList.remove('active'));btn.classList.add('active')};
+    sw.appendChild(btn);
+  });
+  if(save.unlocked.length>1)sw.classList.add('active');else sw.classList.remove('active');
+  updateHUD();
+  startAI();
+}
+
+// ─── Event Listeners ─────────────────────────────────────────────────────────
+document.getElementById('fightBtn').onclick=beginMatch;
+document.getElementById('startFightBtn').onclick=startFight;
+document.getElementById('nextFightBtn').onclick=beginMatch;
+document.getElementById('winMenuBtn').onclick=()=>showScreen('menuScreen');
+document.getElementById('rematchBtn').onclick=beginMatch;
+document.getElementById('loseMenuBtn').onclick=()=>showScreen('menuScreen');
+
+document.getElementById('upStr').onclick=()=>{const c=save.str*5;if(save.coins>=c&&save.str<10){save.coins-=c;save.str++;saveData(save);updateMenu()}};
+document.getElementById('upAgi').onclick=()=>{const c=save.agi*5;if(save.coins>=c&&save.agi<10){save.coins-=c;save.agi++;saveData(save);updateMenu()}};
+document.getElementById('upTim').onclick=()=>{const c=save.tim*5;if(save.coins>=c&&save.tim<10){save.coins-=c;save.tim++;saveData(save);updateMenu()}};
+
+document.querySelectorAll('.diff-btn').forEach(b=>{
+  b.onclick=()=>{save.diff=b.dataset.diff;saveData(save);updateMenu()};
+});
+
+// QTE buttons
+document.querySelectorAll('.qte-btn').forEach(b=>{
+  b.onclick=()=>doQTE(b.dataset.type);
+});
+
+// Control buttons
+document.querySelectorAll('.ctrl-btn').forEach(b=>{
+  const action=b.dataset.action;
+  if(action==='punch'){b.onclick=()=>playerAttack('P');}
+  else if(action==='kick'){b.onclick=()=>playerAttack('K');}
+  else if(action==='left'){b.onpointerdown=()=>movePlayer(-1);}
+  else if(action==='right'){b.onpointerdown=()=>movePlayer(1);}
+});
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  if(state.phase!=='fighting')return;
+  if(e.key==='p'||e.key==='P')playerAttack('P');
+  else if(e.key==='k'||e.key==='K')playerAttack('K');
+  else if(e.key==='ArrowLeft')movePlayer(-1);
+  else if(e.key==='ArrowRight')movePlayer(1);
+  else if(e.key==='ArrowUp')doQTE('PARRY');
+  else if(e.key==='ArrowDown')doQTE('DUCK');
+  else if(e.key==='a'||e.key==='A')doQTE('DODGE');
+  else if(e.key==='d'||e.key==='D')doQTE('DODGE');
+  else if(e.key==='Enter')doQTE('COUNTER');
+});
+
+// Prevent scrolling
+document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+showScreen('menuScreen');
+</script>
+</body>
+</html>
